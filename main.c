@@ -2,12 +2,15 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "defer.h"
+
 typedef struct netbox_state {
 	char* username;
 	char* password;
 	int peer_port;
-	// Possivelmente sockets de tcp/udp?
-	
+
+	int udp_socket_fd;
+	int tcp_socket_fd;
 } netbox_state_t;
 
 typedef enum {
