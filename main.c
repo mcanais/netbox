@@ -10,21 +10,16 @@
 #define MAX_INPUT_LENGTH (1 << 10)
 
 
-res_t netbox_login(netbox_state_t* state, char* username, char* password, int peerPort);
-
-res_t netbox_logout(netbox_state_t* state);
-
-res_t netbox_unregister(netbox_state_t* state);
-
 void print_usage() {
 	printf("Usage: ./netbox -m peerport [-n DSIP] [-p DSport]\n");
 }
 
 int main(int argc, char** argv) {
 	netbox_state_t netbox_state = {
+		.is_logged_in = false,
 		.peer_port = -1,
 		.directory_server_ip = DSIP,
-		.directory_server_port = DSPORT
+		.directory_server_port = DSPORT,
 	};
 
 	// Read all the options
@@ -73,13 +68,15 @@ int main(int argc, char** argv) {
 			continue;
 
 		if (strcmp(command, "login") == 0) {
-			netbox_login();
+			char *uid = strtok(NULL, " ");
+			char *password = strtok(NULL, " ");
+			netbox_login(&netbox_state, uid, password);
 		}
 		else if (strcmp(command, "logout") == 0) {
-			netbox_logout();
+			netbox_logout(&netbox_state);
 		}
 		else if (strcmp(command, "unregister") == 0) {
-			netbox_unregister();
+			netbox_unregister(&netbox_state);
 		}
 		else if (strcmp(command, "exit") == 0) {
 			if (!netbox_state.is_logged_in)

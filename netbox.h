@@ -1,13 +1,14 @@
 #ifndef _NETBOX_H
 #define _NETBOX_H
 
+#include <stdbool.h>
+
 #include "result.h"
 
 
 typedef struct netbox_state {
-	char* username;
-	char* password;
-
+	char uid[6];
+	char password[8];
 	bool is_logged_in;
 
 	int peer_port;
@@ -26,7 +27,7 @@ typedef struct netbox_state {
 res_t netbox_setup(netbox_state_t* state);
 res_t netbox_cleanup(netbox_state_t* state);
 
-res_t netbox_login(netbox_state_t* state, char* username, char* password, int peerPort);
+res_t netbox_login(netbox_state_t* state, char *uid, char *password);
 res_t netbox_logout(netbox_state_t* state);
 res_t netbox_unregister(netbox_state_t* state);
 
