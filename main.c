@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 				puts("You are still logged in. Please logout first.");
 		}
 		else {
-			fputs(stderr, "Invalid command! Do better.");
+			fputs("Invalid command! Do better.", stderr);
 		}
 	}
 

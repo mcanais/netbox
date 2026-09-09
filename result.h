@@ -3,7 +3,7 @@
 
 typedef enum {
 	SUCCESS,
-	FAIL
+	FAILURE
 } res_t;
 
 #endif
