@@ -11,7 +11,7 @@
 
 
 void print_usage() {
-	printf("Usage: ./netbox -m peerport [-n DSIP] [-p DSport]\n");
+	fprintf(stderr,"Usage: ./netbox -m peerport [-n DSIP] [-p DSport]\n");
 }
 
 int main(int argc, char** argv) {
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 				puts("You are still logged in. Please logout first.");
 		}
 		else {
-			fputs("Invalid command! Do better.", stderr);
+			fprintf(stderr, "Invalid command! Do better.\n");
 		}
 	}
 
