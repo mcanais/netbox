@@ -1,26 +1,18 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
-#include "defer.h"
+#include "result.h"
+#include "netbox.h"
 
-typedef struct netbox_state {
-	char* username;
-	char* password;
-	int peer_port;
 
-	int udp_socket_fd;
-	int tcp_socket_fd;
-} netbox_state_t;
+#define MAX_INPUT_LENGTH (1 << 10)
 
-typedef enum {
-	SUCCESS,
-	FAIL
-} res_t;
 
 res_t netbox_login(netbox_state_t* state, char* username, char* password, int peerPort);
 
-res_t netbox_logout(netbox_state_t* state); 
+res_t netbox_logout(netbox_state_t* state);
 
 res_t netbox_unregister(netbox_state_t* state);
 
@@ -29,31 +21,28 @@ void print_usage() {
 }
 
 int main(int argc, char** argv) {
-	int peer_port = 0;
-	char* directory_server_ip = NULL;
-	int directory_server_port = 0;
-
-	int argument_index = 1;
+	netbox_state_t netbox_state = {
+		.peer_port = -1,
+		.directory_server_ip = DSIP,
+		.directory_server_port = DSPORT
+	};
 
 	// Read all the options
+	int argument_index = 1;
 	while (argument_index < argc) {
 		char* option = argv[argument_index];
 
 		if (strcmp(option, "-m") == 0 && argument_index + 1 != argc) {
-			peer_port = atoi(argv[argument_index + 1]);
-
-			if (peer_port <= 0) {
+			if (sscanf(argv[argument_index + 1], "%u", &netbox_state.peer_port)) {
 				print_usage();
 				exit(1);
 			}
 			argument_index += 2;
 		} else if (strcmp(option, "-n") == 0 && argument_index + 1 != argc) {
-			directory_server_ip = argv[argument_index + 1];
+			netbox_state.directory_server_ip = argv[argument_index + 1];
 			argument_index += 2;
 		} else if (strcmp(option, "-p") == 0 && argument_index + 1 != argc) {
-			directory_server_port = atoi(argv[argument_index + 1]);
-
-			if (directory_server_port <= 0) {
+			if (sscanf(argv[argument_index + 1], "%u", &netbox_state.directory_server_port)) {
 				print_usage();
 				exit(1);
 			}
@@ -65,10 +54,45 @@ int main(int argc, char** argv) {
 	}
 
 	// The user needs to specify the Peer Port
-	if (peer_port == 0) {
+	if (netbox_state.peer_port == -1) {
 		print_usage();
 		exit(1);
 	}
+
+	netbox_setup(&netbox_state);
+
+	char input_line[MAX_INPUT_LENGTH];
+	while (true) {
+		if (fgets(input_line, MAX_INPUT_LENGTH, stdin) == NULL) {
+			netbox_cleanup(&netbox_state);
+			exit(2);
+		}
+
+		char *command = strtok(input_line, " ");
+		if (command == NULL)
+			continue;
+
+		if (strcmp(command, "login") == 0) {
+			netbox_login();
+		}
+		else if (strcmp(command, "logout") == 0) {
+			netbox_logout();
+		}
+		else if (strcmp(command, "unregister") == 0) {
+			netbox_unregister();
+		}
+		else if (strcmp(command, "exit") == 0) {
+			if (!netbox_state.is_logged_in)
+				break;
+			else
+				puts("You are still logged in. Please logout first.");
+		}
+		else {
+			fputs(stderr, "Invalid command! Do better.");
+		}
+	}
+
+	netbox_cleanup(&netbox_state);
 
 	return 0;
 }
