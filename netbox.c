@@ -1,6 +1,7 @@
 #include "result.h"
 #include "netbox.h"
 
+
 res_t netbox_setup(netbox_state_t* state);
 res_t netbox_cleanup(netbox_state_t* state);
 
