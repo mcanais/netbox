@@ -6,21 +6,19 @@
 #include "result.h"
 #include "netbox.h"
 
-
 #define MAX_INPUT_LENGTH (1 << 10)
 
 
 void print_usage() {
-	fprintf(stderr,"Usage: ./netbox -m peerport [-n DSIP] [-p DSport]\n");
+	fprintf(stderr, "Usage: ./netbox -m peerport [-n DSIP] [-p DSport]\n");
 }
 
 int main(int argc, char** argv) {
-	netbox_state_t netbox_state = {
-		.is_logged_in = false,
-		.peer_port = -1,
-		.directory_server_ip = DSIP,
-		.directory_server_port = DSPORT,
-	};
+	netbox_state_t netbox_state;
+
+	int peer_server_port = -1;
+	char* directory_server_address = NULL;
+	int directory_server_port = 0;
 
 	// Read all the options
 	int argument_index = 1;
@@ -28,16 +26,16 @@ int main(int argc, char** argv) {
 		char* option = argv[argument_index];
 
 		if (strcmp(option, "-m") == 0 && argument_index + 1 != argc) {
-			if (sscanf(argv[argument_index + 1], "%u", &netbox_state.peer_port)) {
+			if (sscanf(argv[argument_index + 1], "%u", &peer_server_port) != 1) {
 				print_usage();
 				exit(1);
 			}
 			argument_index += 2;
 		} else if (strcmp(option, "-n") == 0 && argument_index + 1 != argc) {
-			netbox_state.directory_server_ip = argv[argument_index + 1];
+			directory_server_address = argv[argument_index + 1];
 			argument_index += 2;
 		} else if (strcmp(option, "-p") == 0 && argument_index + 1 != argc) {
-			if (sscanf(argv[argument_index + 1], "%u", &netbox_state.directory_server_port)) {
+			if (sscanf(argv[argument_index + 1], "%u", &directory_server_port) != 1) {
 				print_usage();
 				exit(1);
 			}
@@ -48,14 +46,17 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	// The user needs to specify the Peer Port
-	if (netbox_state.peer_port == -1) {
+	// The user needs to specify the Peer Server Port
+	if (peer_server_port == -1) {
 		print_usage();
 		exit(1);
 	}
 
-	netbox_setup(&netbox_state);
+	if (netbox_setup(&netbox_state, peer_server_port, directory_server_address, directory_server_port) == FAILURE) {
+		exit(1);
+	}
 
+	// Main loop for user commands
 	char input_line[MAX_INPUT_LENGTH];
 	while (true) {
 		if (fgets(input_line, MAX_INPUT_LENGTH, stdin) == NULL) {

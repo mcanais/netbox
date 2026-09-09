@@ -1,3 +1,4 @@
+// Pedro isto é normal ok!
 #if __has_include(<stddefer.h>)
 # include <stddefer.h>
 # if defined(__clang__)

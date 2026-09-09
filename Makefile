@@ -1,8 +1,8 @@
 CC = gcc
 CFLAGS = -Wall -Wextra
 
-main: main.c netbox.c netbox.h
-	$(CC) $(CFLAGS) -o netbox main.c netbox.c
+main: code/main.c code/netbox.c code/netbox.h code/result.h
+	$(CC) $(CFLAGS) -o netbox code/main.c code/netbox.c
 
 clean:
 	rm -f netbox
