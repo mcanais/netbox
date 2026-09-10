@@ -18,8 +18,8 @@
 typedef struct netbox_state {
 	char uid[UID_LENGTH + 1];
 	char password[PASSWORD_LENGTH + 1];
-	short peer_server_port;
-	short directory_server_port;
+	unsigned short peer_server_port;
+	unsigned short directory_server_port;
 	char* directory_server_address; // Can be either the domain name or an IP address
 	struct addrinfo* directory_server_address_info;
 	int udp_socket_fd;

@@ -50,7 +50,7 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 	hints.ai_socktype = SOCK_DGRAM;
 
 	char directory_server_port_string[20];
-	snprintf(directory_server_port_string, sizeof(directory_server_port_string), "%d", netbox_state->directory_server_port);
+	snprintf(directory_server_port_string, sizeof(directory_server_port_string), "%hu", netbox_state->directory_server_port);
 
 	if (getaddrinfo(netbox_state->directory_server_address, directory_server_port_string, &hints, &server_address_info) != 0)
 		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
@@ -111,7 +111,7 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 	// build message
 	char message[MAX_MESSAGE_LENGTH + 1], reply[MAX_REPLY_LENGTH + 1];  // null char
-	sprintf(message, "LIN %s %s %d\n", netbox_state->uid, netbox_state->password, netbox_state->peer_server_port);
+	sprintf(message, "LIN %s %s %hu\n", netbox_state->uid, netbox_state->password, netbox_state->peer_server_port);
 
 	char *status;
 	if (send_udp_message(netbox_state, message, reply, "RLI", &status))
