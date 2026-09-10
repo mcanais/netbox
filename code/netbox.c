@@ -15,6 +15,8 @@
 // TODO: fazer documentacao, explicar o contexto do projeto e a big picture
 //TODO: dá para criar uma função geral que o netbox_login, logout e unresgister usariam para mandar e receber a resposta
 
+#define MAX_MESSAGE_LENGTH (OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1 + 5 + 1)
+
 
 res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* directory_server_address, int directory_server_port) {
 	netbox_state->directory_server_address = directory_server_address == NULL ? DEFAULT_DIRECTORY_SERVER_ADDRESS : directory_server_address;
@@ -105,11 +107,9 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	memcpy(netbox_state->password, password, PASSWORD_LENGTH + 1);
 
 	// build message
-	
-	// FIXME: nao esta correto, falta considerar o tamanho do server port que é variavel
-	size_t message_length = OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1;
-	char message[message_length + 1];  // null char
+	char message[MAX_MESSAGE_LENGTH + 1];  // null char
 	sprintf(message, "LIN %s %s %d\n", netbox_state->uid, netbox_state->password, netbox_state->peer_server_port);
+	size_t message_length = strlen(message);
 
 	// send message
 	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length) {
@@ -157,9 +157,9 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 res_t netbox_logout(netbox_state_t* netbox_state) {
 	// build message
-	size_t message_length = OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1;
-	char message[message_length + 1];  // null char
-	sprintf(message, "LOU %s %s %d\n", netbox_state->uid, netbox_state->password, netbox_state->peer_server_port);
+	char message[MAX_MESSAGE_LENGTH + 1];  // null char
+	sprintf(message, "LOU %s %s\n", netbox_state->uid, netbox_state->password);
+	size_t message_length = strlen(message);
 
 	// send message
 	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length) {
@@ -208,9 +208,9 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 
 res_t netbox_unregister(netbox_state_t* netbox_state) {
 	// build message
-	size_t message_length = OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1;
-	char message[message_length + 1];  // null char
-	sprintf(message, "LOU %s %s %d\n", netbox_state->uid, netbox_state->password, netbox_state->peer_server_port);
+	char message[MAX_MESSAGE_LENGTH + 1];  // null char
+	sprintf(message, "LOU %s %s\n", netbox_state->uid, netbox_state->password);
+	size_t message_length = strlen(message);
 
 	// send message
 	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length) {

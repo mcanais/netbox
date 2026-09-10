@@ -16,9 +16,9 @@ void print_usage() {
 int main(int argc, char** argv) {
 	netbox_state_t netbox_state;
 
-	int peer_server_port = -1;
+	short peer_server_port = -1;
 	char* directory_server_address = NULL;
-	int directory_server_port = 0;
+	short directory_server_port = 0;
 
 	// Read all the options
 	int argument_index = 1;
@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
 		char* option = argv[argument_index];
 
 		if (strcmp(option, "-m") == 0 && argument_index + 1 != argc) {
-			if (sscanf(argv[argument_index + 1], "%u", &peer_server_port) != 1) {
+			if (sscanf(argv[argument_index + 1], "%hu", &peer_server_port) != 1) {
 				print_usage();
 				exit(1);
 			}
@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
 			directory_server_address = argv[argument_index + 1];
 			argument_index += 2;
 		} else if (strcmp(option, "-p") == 0 && argument_index + 1 != argc) {
-			if (sscanf(argv[argument_index + 1], "%u", &directory_server_port) != 1) {
+			if (sscanf(argv[argument_index + 1], "%hu", &directory_server_port) != 1) {
 				print_usage();
 				exit(1);
 			}
