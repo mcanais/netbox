@@ -18,20 +18,20 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, char 
 
 	// send message
 	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
-		return failure("Couldn't communicate with server.");
+		return failure("Couldn't communicate with server.\n");
 
 	// read reply
 	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
 	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0)
-		return failure("Couldn't receive confirmation from the server.");
+		return failure("Couldn't receive confirmation from the server.\n");
 
 	char *op_word = strtok(reply, " ");
 	*status = strtok(NULL, "\n");
 
 	if (op_word == NULL || strcmp(op_word, expected_op_word))
-		return failure("Invalid op word from the server.");
+		return failure("Invalid op word from the server.\n");
 	if (*status == NULL)
-		return failure("Invalid status code from the server.");
+		return failure("Invalid status code from the server.\n");
 
 	return SUCCESS;
 }
@@ -86,6 +86,9 @@ res_t netbox_cleanup(netbox_state_t* netbox_state) {
 
 res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	char *p;
+
+	if (netbox_state->is_logged_in)
+		return failure("You are already logged in.\n");
 
 	if (uid == NULL || password == NULL)
 		return failure("Login usage: login UID password\n");
@@ -152,7 +155,7 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 	else if (strcmp(status, "WRP") == 0)
 		printf("Wrong password.\n");
 	else
-		return failure("Unkown status code from the server.");
+		return failure("Unkown status code from the server.\n");
 
 	netbox_state->is_logged_in = false;
 	return SUCCESS;
@@ -162,7 +165,7 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 res_t netbox_unregister(netbox_state_t* netbox_state) {
 	// build message
 	char message[MAX_MESSAGE_LENGTH + 1], reply[MAX_REPLY_LENGTH + 1];  // null char
-	sprintf(message, "LOU %s %s\n", netbox_state->uid, netbox_state->password);
+	sprintf(message, "UNR %s %s\n", netbox_state->uid, netbox_state->password);
 
 	char *status;
 	if (send_udp_message(netbox_state, message, reply, "RUR", &status))
@@ -178,7 +181,7 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 	else if (strcmp(status, "WRP") == 0)
 		printf("Wrong password.\n");
 	else
-		return failure("Unknown status code from the server.");
+		return failure("Unknown status code from the server.\n");
 
 	return SUCCESS;
 }
