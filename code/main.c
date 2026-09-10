@@ -57,13 +57,17 @@ int main(int argc, char** argv) {
 		exit(1);
 	}
 
+	printf("Welcome to netbox!\nSuccefully connected to the server with ip %s port %d\n", netbox_state.directory_server_address, netbox_state.directory_server_port);
+
 	// Main loop for user commands
 	char input_line[MAX_INPUT_LENGTH];
 	while (true) {
+		printf("> ");
 		if (fgets(input_line, MAX_INPUT_LENGTH, stdin) == NULL) {
 			netbox_cleanup(&netbox_state);
 			exit(2);
 		}
+		input_line[strlen(input_line) - 1] = '\0';
 
 		char *command = strtok(input_line, " ");
 		if (command == NULL)

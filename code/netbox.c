@@ -154,6 +154,7 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 	else
 		return failure("Unkown status code from the server.");
 
+	netbox_state->is_logged_in = false;
 	return SUCCESS;
 }
 
