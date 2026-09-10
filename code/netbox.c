@@ -5,7 +5,6 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <stdarg.h>
 
 #include "result.h"
 #include "netbox.h"
@@ -17,16 +16,6 @@
 //TODO: dá para criar uma função geral que o netbox_login, logout e unresgister usariam para mandar e receber a resposta
 
 #define MAX_MESSAGE_LENGTH (OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1 + 5 + 1)
-
-
-inline res_t failure(char *fmt, ...) {
-	va_list args;
-    va_start(args, fmt);
-    fprintf(stderr, fmt, args);
-    va_end(args);
-
-	return FAILURE;
-}
 
 
 static res_t send_udp_message(netbox_state_t *netbox_state, char *message, char *reply, char *expected_op_word, char **status) {
