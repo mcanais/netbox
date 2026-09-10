@@ -50,13 +50,13 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 	int udp_socket_fd = socket(server_address_info->ai_family, server_address_info->ai_socktype, server_address_info->ai_protocol);
 	if (udp_socket_fd == -1) {
 		freeaddrinfo(server_address_info);
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Failed to create UDP socket.\n");
 	}
 
 	if (connect(udp_socket_fd, server_address_info->ai_addr, server_address_info->ai_addrlen) < 0) {
 		freeaddrinfo(server_address_info);
 		close(udp_socket_fd);
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Failed to estabilish UDP connection with the server.\n");
 	}
 
 	netbox_state->is_logged_in = false;
@@ -81,24 +81,24 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	char *p;
 
 	if (uid == NULL || password == NULL)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("login usage: login UID password\n");
 
 	// UID
 	if (strnlen(uid, UID_LENGTH + 1) != UID_LENGTH)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("UID must be exactly %d digits.\n", UID_LENGTH);
 	p = uid;
 	while (*p != '\0')
 		if (!isdigit(*p++))
-			return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+			return failure("UID must only contain digits.\n");
 	memcpy(netbox_state->uid, uid, UID_LENGTH + 1);
 
 	// password
 	if (strnlen(password, PASSWORD_LENGTH + 1) != PASSWORD_LENGTH)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("password must be exactly %d characters.\n", PASSWORD_LENGTH);
 	p = password;
 	while (*p != '\0')
 		if (!isalnum(*p++))
-			return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+			return failure("password must only contain alphanumeric characters.\n");
 	memcpy(netbox_state->password, password, PASSWORD_LENGTH + 1);
 
 	// build message
@@ -108,21 +108,21 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 	// send message
 	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Couldn't communicate with server.");
 
 	// read reply
 	char reply[MAX_REPLY_LENGTH + 1];
 	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
 	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Couldn't receive confirmation from the server.");
 
 	char *op_word = strtok(reply, " ");
 	char *status = strtok(NULL, "\n");
 
 	if (op_word == NULL || strcmp(op_word, "RLI"))
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Invalid op word from the server.");
 	if (status == NULL)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Invalid status code from the server.");
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
@@ -132,7 +132,7 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	else if (strcmp(status, "REG") == 0)
 		printf("new user registered.");
 	else
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Unkown status code from the server.");
 
 	// yeih :)
 	netbox_state->is_logged_in = true;
@@ -148,21 +148,21 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 
 	// send message
 	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Couldn't communicate with server.");
 
 	// read reply
 	char reply[MAX_REPLY_LENGTH + 1];
 	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
 	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Couldn't receive confirmation from the server.");
 
 	char *op_word = strtok(reply, " ");
 	char *status = strtok(NULL, "\n");
 
 	if (op_word == NULL || strcmp(op_word, "RLO"))
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Invalid op word from the server.");
 	if (status == NULL)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Invalid status code from the server.");
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
@@ -174,8 +174,9 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 	else if (strcmp(status, "WRP") == 0)
 		printf("wrong password.");
 	else
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Unkown status code from the server.");
 
+	// yeih :)
 	return SUCCESS;
 }
 
@@ -188,21 +189,21 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 
 	// send message
 	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Couldn't communicate with server.");
 
 	// read reply
 	char reply[MAX_REPLY_LENGTH + 1];
 	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
 	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Couldn't receive confirmation from the server.");
 
 	char *op_word = strtok(reply, " ");
 	char *status = strtok(NULL, "\n");
 
 	if (op_word == NULL || strcmp(op_word, "RUR"))
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Invalid op word from the server.");
 	if (status == NULL)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Invalid status code from the server.");
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
@@ -214,7 +215,8 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 	else if (strcmp(status, "WRP") == 0)
 		printf("wrong password.");
 	else
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Unkown status code from the server.");
 
+	// yeih :)
 	return SUCCESS;
 }
