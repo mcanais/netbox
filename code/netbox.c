@@ -28,7 +28,7 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, char 
 	char *op_word = strtok(reply, " ");
 	*status = strtok(NULL, "\n");
 
-	if (op_word == NULL || strcmp(op_word, "RLO"))
+	if (op_word == NULL || strcmp(op_word, expected_op_word))
 		return failure("Invalid op word from the server.");
 	if (*status == NULL)
 		return failure("Invalid status code from the server.");
@@ -88,7 +88,7 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	char *p;
 
 	if (uid == NULL || password == NULL)
-		return failure("login usage: login UID password\n");
+		return failure("Login usage: login UID password\n");
 
 	// UID
 	if (strnlen(uid, UID_LENGTH + 1) != UID_LENGTH)
@@ -100,11 +100,11 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 	// password
 	if (strnlen(password, PASSWORD_LENGTH + 1) != PASSWORD_LENGTH)
-		return failure("password must be exactly %d characters.\n", PASSWORD_LENGTH);
+		return failure("Password must be exactly %d characters.\n", PASSWORD_LENGTH);
 	p = password;
 	while (*p != '\0')
 		if (!isalnum(*p++))
-			return failure("password must only contain alphanumeric characters.\n");
+			return failure("Password must only contain alphanumeric characters.\n");
 
 	memcpy(netbox_state->uid, uid, UID_LENGTH + 1);
 	memcpy(netbox_state->password, password, PASSWORD_LENGTH + 1);
@@ -119,11 +119,11 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
-		printf("successful login.");
+		printf("Successful login.\n");
 	else if (strcmp(status, "NOK") == 0)
-		printf("incorrect login attempt.");
+		printf("Incorrect login attempt.\n");
 	else if (strcmp(status, "REG") == 0)
-		printf("new user registered.");
+		printf("New user registered.\n");
 	else
 		return failure("Unkown status code from the server.");
 
@@ -144,13 +144,13 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
-		printf("successful logout.");
+		printf("Successful logout.\n");
 	else if (strcmp(status, "NLG") == 0)
-		printf("user not logged in.");
+		printf("User not logged in.\n");
 	else if (strcmp(status, "UNR") == 0)
-		printf("unknown user.");
+		printf("Unknown user.\n");
 	else if (strcmp(status, "WRP") == 0)
-		printf("wrong password.");
+		printf("Wrong password.\n");
 	else
 		return failure("Unkown status code from the server.");
 
@@ -169,15 +169,15 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
-		printf("successful unresgiter.");
+		printf("Successful unresgiter.\n");
 	else if (strcmp(status, "NOK") == 0)
-		printf("user not logged in.");
+		printf("User not logged in.");
 	else if (strcmp(status, "UNR") == 0)
-		printf("unknown user.");
+		printf("Unknown user.\n");
 	else if (strcmp(status, "WRP") == 0)
-		printf("wrong password.");
+		printf("Wrong password.\n");
 	else
-		return failure("Unkown status code from the server.");
+		return failure("Unknown status code from the server.");
 
 	return SUCCESS;
 }
