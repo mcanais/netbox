@@ -13,6 +13,7 @@
 //      sure :)
 
 // TODO: fazer documentacao, explicar o contexto do projeto e a big picture
+//TODO: dá para criar uma função geral que o netbox_login, logout e unresgister usariam para mandar e receber a resposta
 
 
 res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* directory_server_address, int directory_server_port) {
@@ -59,6 +60,7 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 
 res_t netbox_cleanup(netbox_state_t* netbox_state) {
 	if (close(netbox_state->udp_socket_fd) == -1) {
+		//FIXME: error message
 		return FAILURE;
 	}
 	freeaddrinfo(netbox_state->directory_server_address_info);
@@ -154,10 +156,102 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 
 res_t netbox_logout(netbox_state_t* netbox_state) {
+	// build message
+	size_t message_length = OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1;
+	char message[message_length + 1];  // null char
+	sprintf(message, "LOU %s %s %d\n", netbox_state->uid, netbox_state->password, netbox_state->peer_server_port);
+
+	// send message
+	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length) {
+		fprintf(stderr, "Couldn't communicate with server.");
+		return FAILURE;
+	}
+
+	// read reply
+	char reply[MAX_REPLY_LENGTH + 1];
+	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
+	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0) {
+		fprintf(stderr, "Couldn't receive confirmation from the server.");
+		return FAILURE;
+	}
+
+	char *op_word = strtok(reply, " ");
+	char *status = strtok(NULL, "\n");
+
+	if (op_word == NULL || strcmp(op_word, "RLO")) {
+		fprintf(stderr, "Invalid op word from the server.");
+		return FAILURE;
+	}
+	if (status == NULL) {
+		fprintf(stderr, "Invalid status code from the server.");
+		return FAILURE;
+	}
+
+	// see status code
+	if (strcmp(status, "OK") == 0)
+		printf("successful logout.");
+	else if (strcmp(status, "NLG") == 0)
+		printf("user not logged in.");
+	else if (strcmp(status, "UNR") == 0)
+		printf("unknown user.");
+	else if (strcmp(status, "WRP") == 0)
+		printf("wrong password.");
+	else {
+		fprintf(stderr, "Unkown status code from the server.");
+		return FAILURE;
+	}
+
+	// yeih :)
 	return SUCCESS;
 }
 
 
 res_t netbox_unregister(netbox_state_t* netbox_state) {
+	// build message
+	size_t message_length = OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1;
+	char message[message_length + 1];  // null char
+	sprintf(message, "LOU %s %s %d\n", netbox_state->uid, netbox_state->password, netbox_state->peer_server_port);
+
+	// send message
+	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length) {
+		fprintf(stderr, "Couldn't communicate with server.");
+		return FAILURE;
+	}
+
+	// read reply
+	char reply[MAX_REPLY_LENGTH + 1];
+	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
+	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0) {
+		fprintf(stderr, "Couldn't receive confirmation from the server.");
+		return FAILURE;
+	}
+
+	char *op_word = strtok(reply, " ");
+	char *status = strtok(NULL, "\n");
+
+	if (op_word == NULL || strcmp(op_word, "RUR")) {
+		fprintf(stderr, "Invalid op word from the server.");
+		return FAILURE;
+	}
+	if (status == NULL) {
+		fprintf(stderr, "Invalid status code from the server.");
+		return FAILURE;
+	}
+
+	// see status code
+	if (strcmp(status, "OK") == 0)
+		printf("successful unresgiter.");
+	else if (strcmp(status, "NOK") == 0)
+		printf("user not logged in.");
+	else if (strcmp(status, "UNR") == 0)
+		printf("unknown user.");
+	else if (strcmp(status, "WRP") == 0)
+		printf("wrong password.");
+	else {
+		fprintf(stderr, "Unkown status code from the server.");
+		return FAILURE;
+	}
+
+	// yeih :)
 	return SUCCESS;
 }
