@@ -9,11 +9,6 @@
 #include "result.h"
 #include "netbox.h"
 
-//NOTE: poidiamos trocar o fprintf(stderr, "..."); return FAILURE; por uma função que dá print do erro e devolve FAILURE
-//      sure :)
-
-// TODO: fazer documentacao, explicar o contexto do projeto e a big picture
-//TODO: dá para criar uma função geral que o netbox_login, logout e unresgister usariam para mandar e receber a resposta
 
 #define MAX_MESSAGE_LENGTH (OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1 + 5 + 1)
 
@@ -81,9 +76,9 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 
 
 res_t netbox_cleanup(netbox_state_t* netbox_state) {
-	if (close(netbox_state->udp_socket_fd) == -1)
-		return failure("Couldn't close the udp socket.");
-
+	if (close(netbox_state->udp_socket_fd) == -1) {
+		return failure("Failed to close UDP socket.\n");
+	}
 	freeaddrinfo(netbox_state->directory_server_address_info);
 	return SUCCESS;
 }

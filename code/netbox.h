@@ -18,20 +18,74 @@
 typedef struct netbox_state {
 	char uid[UID_LENGTH + 1];
 	char password[PASSWORD_LENGTH + 1];
-	bool is_logged_in;
 	short peer_server_port;
-	char* directory_server_address; // Can be either the domain name or an IP string
 	short directory_server_port;
+	char* directory_server_address; // Can be either the domain name or an IP address
 	struct addrinfo* directory_server_address_info;
 	int udp_socket_fd;
 	int tcp_socket_fd;
+	bool is_logged_in;
 } netbox_state_t;
 
 
+/**
+ * Sets ups the netbox client, which becomes ready to communicate with the Directory Server.
+ *
+ * @param netbox_state              Pointer to the netbox state to be initialized.
+ * @param peer_server_port          Port to which the peer server binds to.
+ * @param directory_server_address  IP address or hostname of the Directory Server. If NULL, it is set to the default value.
+ * @param directory_server_port     Port on which the Directory Server is accessed. If 0, it is set to the default value.
+ *
+ * @return Whether the operation was successful or not.
+ */
 res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* directory_server_address, int directory_server_port);
+
+
+/**
+ * Cleans up all of the resources used by the netbox client.
+ *
+ * @param netbox_state  Pointer to the netbox state.
+ *
+ * @return Whether the operation was successful or not.
+ */
 res_t netbox_cleanup(netbox_state_t* netbox_state);
+
+
+/**
+ * Attempts to login to the Directory Server.
+ * 
+ * If the user sent the correct password, the user becomes logged in.
+ * Otherwise, the login fails.
+ * If its the first time the user is logging in, the user is first registered
+ * and then becomes logged in.
+ *
+ * @param netbox_state  Pointer to the netbox state.
+ * @param uid           Username to use in the login
+ * @param password      Password to use in the login
+ *
+ * @return Whether the operation was successful or not.
+ * 		   If the password was not correct it still returns a success response.
+ */
 res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password);
+
+
+/**
+ * Logs out of the Directory Server.
+ * 
+ * @param netbox_state  Pointer to the netbox state.
+ *
+ * @return Whether the operation was successful or not.
+ */
 res_t netbox_logout(netbox_state_t* netbox_state);
+
+
+/**
+ * Unregisters the user from the Directory Server.
+ * 
+ * @param netbox_state  Pointer to the netbox state.
+ *
+ * @return Whether the operation was successful or not.
+ */
 res_t netbox_unregister(netbox_state_t* netbox_state);
 
 #endif
