@@ -29,6 +29,30 @@ inline res_t failure(char *fmt, ...) {
 }
 
 
+static res_t send_udp_message(netbox_state_t *netbox_state, char *message, char *reply, char *expected_op_word, char **status) {
+	size_t message_length = strlen(message);
+
+	// send message
+	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
+		return failure("Couldn't communicate with server.");
+
+	// read reply
+	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
+	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0)
+		return failure("Couldn't receive confirmation from the server.");
+
+	char *op_word = strtok(reply, " ");
+	*status = strtok(NULL, "\n");
+
+	if (op_word == NULL || strcmp(op_word, "RLO"))
+		return failure("Invalid op word from the server.");
+	if (*status == NULL)
+		return failure("Invalid status code from the server.");
+
+	return SUCCESS;
+}
+
+
 res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* directory_server_address, int directory_server_port) {
 	netbox_state->directory_server_address = directory_server_address == NULL ? DEFAULT_DIRECTORY_SERVER_ADDRESS : directory_server_address;
 	netbox_state->directory_server_port = directory_server_port == 0 ? DEFAULT_DIRECTORY_SERVER_PORT : directory_server_port;
@@ -68,10 +92,9 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 
 
 res_t netbox_cleanup(netbox_state_t* netbox_state) {
-	if (close(netbox_state->udp_socket_fd) == -1) {
-		//FIXME: error message
-		return FAILURE;
-	}
+	if (close(netbox_state->udp_socket_fd) == -1)
+		return failure("Couldn't close the udp socket.");
+
 	freeaddrinfo(netbox_state->directory_server_address_info);
 	return SUCCESS;
 }
@@ -90,7 +113,6 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	while (*p != '\0')
 		if (!isdigit(*p++))
 			return failure("UID must only contain digits.\n");
-	memcpy(netbox_state->uid, uid, UID_LENGTH + 1);
 
 	// password
 	if (strnlen(password, PASSWORD_LENGTH + 1) != PASSWORD_LENGTH)
@@ -99,30 +121,17 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	while (*p != '\0')
 		if (!isalnum(*p++))
 			return failure("password must only contain alphanumeric characters.\n");
+
+	memcpy(netbox_state->uid, uid, UID_LENGTH + 1);
 	memcpy(netbox_state->password, password, PASSWORD_LENGTH + 1);
 
 	// build message
-	char message[MAX_MESSAGE_LENGTH + 1];  // null char
+	char message[MAX_MESSAGE_LENGTH + 1], reply[MAX_REPLY_LENGTH + 1];  // null char
 	sprintf(message, "LIN %s %s %d\n", netbox_state->uid, netbox_state->password, netbox_state->peer_server_port);
-	size_t message_length = strlen(message);
 
-	// send message
-	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
-		return failure("Couldn't communicate with server.");
-
-	// read reply
-	char reply[MAX_REPLY_LENGTH + 1];
-	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
-	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0)
-		return failure("Couldn't receive confirmation from the server.");
-
-	char *op_word = strtok(reply, " ");
-	char *status = strtok(NULL, "\n");
-
-	if (op_word == NULL || strcmp(op_word, "RLI"))
-		return failure("Invalid op word from the server.");
-	if (status == NULL)
-		return failure("Invalid status code from the server.");
+	char *status;
+	if (send_udp_message(netbox_state, message, reply, "RLI", &status))
+		return FAILURE;
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
@@ -142,27 +151,12 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 res_t netbox_logout(netbox_state_t* netbox_state) {
 	// build message
-	char message[MAX_MESSAGE_LENGTH + 1];  // null char
+	char message[MAX_MESSAGE_LENGTH + 1], reply[MAX_REPLY_LENGTH + 1];  // null char
 	sprintf(message, "LOU %s %s\n", netbox_state->uid, netbox_state->password);
-	size_t message_length = strlen(message);
 
-	// send message
-	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
-		return failure("Couldn't communicate with server.");
-
-	// read reply
-	char reply[MAX_REPLY_LENGTH + 1];
-	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
-	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0)
-		return failure("Couldn't receive confirmation from the server.");
-
-	char *op_word = strtok(reply, " ");
-	char *status = strtok(NULL, "\n");
-
-	if (op_word == NULL || strcmp(op_word, "RLO"))
-		return failure("Invalid op word from the server.");
-	if (status == NULL)
-		return failure("Invalid status code from the server.");
+	char *status;
+	if (send_udp_message(netbox_state, message, reply, "RLO", &status))
+		return FAILURE;
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
@@ -176,34 +170,18 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 	else
 		return failure("Unkown status code from the server.");
 
-	// yeih :)
 	return SUCCESS;
 }
 
 
 res_t netbox_unregister(netbox_state_t* netbox_state) {
 	// build message
-	char message[MAX_MESSAGE_LENGTH + 1];  // null char
+	char message[MAX_MESSAGE_LENGTH + 1], reply[MAX_REPLY_LENGTH + 1];  // null char
 	sprintf(message, "LOU %s %s\n", netbox_state->uid, netbox_state->password);
-	size_t message_length = strlen(message);
 
-	// send message
-	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
-		return failure("Couldn't communicate with server.");
-
-	// read reply
-	char reply[MAX_REPLY_LENGTH + 1];
-	reply[MAX_REPLY_LENGTH] = '\0';  // need to make sure strtok finds an end;
-	if (recv(netbox_state->udp_socket_fd, reply, MAX_REPLY_LENGTH, 0) <= 0)
-		return failure("Couldn't receive confirmation from the server.");
-
-	char *op_word = strtok(reply, " ");
-	char *status = strtok(NULL, "\n");
-
-	if (op_word == NULL || strcmp(op_word, "RUR"))
-		return failure("Invalid op word from the server.");
-	if (status == NULL)
-		return failure("Invalid status code from the server.");
+	char *status;
+	if (send_udp_message(netbox_state, message, reply, "RUR", &status))
+		return FAILURE;
 
 	// see status code
 	if (strcmp(status, "OK") == 0)
@@ -217,6 +195,5 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 	else
 		return failure("Unkown status code from the server.");
 
-	// yeih :)
 	return SUCCESS;
 }
