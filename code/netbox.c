@@ -30,6 +30,7 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, char 
 
 	if (op_word == NULL || strcmp(op_word, expected_op_word))
 		return failure("Invalid op word from the server.\n");
+
 	if (*status == NULL)
 		return failure("Invalid status code from the server.\n");
 
@@ -121,14 +122,18 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 		return FAILURE;
 
 	// see status code
-	if (strcmp(status, "OK") == 0)
+	if (strcmp(status, "OK") == 0) {
 		printf("Successful login.\n");
-	else if (strcmp(status, "NOK") == 0)
-		printf("Incorrect login attempt.\n");
-	else if (strcmp(status, "REG") == 0)
+	}
+	else if (strcmp(status, "REG") == 0) {
 		printf("New user registered.\n");
-	else
-		return failure("Unkown status code from the server.");
+	}
+	else if (strcmp(status, "NOK") == 0) {
+		return failure("Incorrect login attempt.\n");
+	}
+	else {
+		return failure("Unkown status code from the server.\n");
+	}
 
 	// yeih :)
 	netbox_state->is_logged_in = true;
@@ -137,6 +142,10 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 
 res_t netbox_logout(netbox_state_t* netbox_state) {
+	if (!netbox_state->is_logged_in) {
+		return failure("The user is not logged in.\n");
+	}
+
 	// build message
 	char message[MAX_MESSAGE_LENGTH + 1], reply[MAX_REPLY_LENGTH + 1];  // null char
 	sprintf(message, "LOU %s %s\n", netbox_state->uid, netbox_state->password);
@@ -146,16 +155,22 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 		return FAILURE;
 
 	// see status code
-	if (strcmp(status, "OK") == 0)
+	if (strcmp(status, "OK") == 0) {
 		printf("Successful logout.\n");
-	else if (strcmp(status, "NLG") == 0)
-		printf("User not logged in.\n");
-	else if (strcmp(status, "UNR") == 0)
-		printf("Unknown user.\n");
-	else if (strcmp(status, "WRP") == 0)
-		printf("Wrong password.\n");
-	else
+	}
+	else if (strcmp(status, "NLG") == 0) {
+		netbox_state->is_logged_in = false; // Make sure the client is consistent with the server
+		return failure("User not logged in.\n");
+	}
+	else if (strcmp(status, "UNR") == 0) {
+		return failure("Unknown user.\n");
+	}
+	else if (strcmp(status, "WRP") == 0) {
+		return failure("Wrong password.\n");
+	}
+	else {
 		return failure("Unkown status code from the server.\n");
+	}
 
 	netbox_state->is_logged_in = false;
 	return SUCCESS;
@@ -163,6 +178,10 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 
 
 res_t netbox_unregister(netbox_state_t* netbox_state) {
+	if (!netbox_state->is_logged_in) {
+		return failure("The user is not logged in.\n");
+	}
+
 	// build message
 	char message[MAX_MESSAGE_LENGTH + 1], reply[MAX_REPLY_LENGTH + 1];  // null char
 	sprintf(message, "UNR %s %s\n", netbox_state->uid, netbox_state->password);
@@ -172,16 +191,23 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 		return FAILURE;
 
 	// see status code
-	if (strcmp(status, "OK") == 0)
+	if (strcmp(status, "OK") == 0) {
 		printf("Successful unresgiter.\n");
-	else if (strcmp(status, "NOK") == 0)
-		printf("User not logged in.");
-	else if (strcmp(status, "UNR") == 0)
-		printf("Unknown user.\n");
-	else if (strcmp(status, "WRP") == 0)
-		printf("Wrong password.\n");
-	else
+	}
+	else if (strcmp(status, "NOK") == 0) {
+		netbox_state->is_logged_in = false; // Make sure the client is consistent with the server
+		return failure("User not logged in.\n");
+	}
+	else if (strcmp(status, "UNR") == 0) {
+		return failure("Unknown user.\n");
+	}
+	else if (strcmp(status, "WRP") == 0) {
+		return failure("Wrong password.\n");
+	}
+	else {
 		return failure("Unknown status code from the server.\n");
+	}
 
+	netbox_state->is_logged_in = false;
 	return SUCCESS;
 }

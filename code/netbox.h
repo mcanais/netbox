@@ -64,13 +64,13 @@ res_t netbox_cleanup(netbox_state_t* netbox_state);
  * @param password      Password to use in the login
  *
  * @return Whether the operation was successful or not.
- * 		   If the password was not correct it still returns a success response.
  */
 res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password);
 
 
 /**
  * Logs out of the Directory Server.
+ * The user must be logged in before logging out.
  * 
  * @param netbox_state  Pointer to the netbox state.
  *
@@ -81,6 +81,7 @@ res_t netbox_logout(netbox_state_t* netbox_state);
 
 /**
  * Unregisters the user from the Directory Server.
+ * The user must be logged in before unregistering.
  * 
  * @param netbox_state  Pointer to the netbox state.
  *
