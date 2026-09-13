@@ -33,7 +33,7 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, char 
 	}
 
 	if (strcmp(op_word, expected_op_word) != 0) {
-		return failure("Invalid op word from the server. Expected: %s, got: \n", expected_op_word, op_word);
+		return failure("Invalid op word from the server. Expected: %s, got: %s\n", expected_op_word, op_word);
 	}
 
 	if (*status == NULL)
@@ -65,6 +65,14 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 	if (udp_socket_fd == -1) {
 		freeaddrinfo(server_address_info);
 		return failure("Failed to create UDP socket.\n");
+	}
+
+	// Set UDP socket timeout to 5 seconds
+	struct timeval timeout = { .tv_sec = 5, .tv_usec = 0 };
+	if (setsockopt(udp_socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0) {
+		freeaddrinfo(server_address_info);
+		close(udp_socket_fd);
+		return failure("Failed to configure UDP socket options.\n");
 	}
 
 	if (connect(udp_socket_fd, server_address_info->ai_addr, server_address_info->ai_addrlen) < 0) {
