@@ -28,8 +28,13 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, char 
 	char *op_word = strtok(reply, " ");
 	*status = strtok(NULL, "\n");
 
-	if (op_word == NULL || strcmp(op_word, expected_op_word))
+	if (op_word == NULL) {
 		return failure("Invalid op word from the server.\n");
+	}
+
+	if (strcmp(op_word, expected_op_word) != 0) {
+		return failure("Invalid op word from the server. Expected: %s, got: \n", expected_op_word, op_word);
+	}
 
 	if (*status == NULL)
 		return failure("Invalid status code from the server.\n");
@@ -143,7 +148,7 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 
 res_t netbox_logout(netbox_state_t* netbox_state) {
 	if (!netbox_state->is_logged_in) {
-		return failure("The user is not logged in.\n");
+		return failure("You are not logged in.\n");
 	}
 
 	// build message
@@ -179,7 +184,7 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 
 res_t netbox_unregister(netbox_state_t* netbox_state) {
 	if (!netbox_state->is_logged_in) {
-		return failure("The user is not logged in.\n");
+		return failure("You are not logged in.\n");
 	}
 
 	// build message
@@ -192,7 +197,7 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 
 	// see status code
 	if (strcmp(status, "OK") == 0) {
-		printf("Successful unresgiter.\n");
+		printf("Successfully unregistered user %s.\n", netbox_state->uid);
 	}
 	else if (strcmp(status, "NOK") == 0) {
 		netbox_state->is_logged_in = false; // Make sure the client is consistent with the server
