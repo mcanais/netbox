@@ -14,6 +14,18 @@ void print_usage() {
 }
 
 
+void print_available_commands() {
+	printf(
+		"List of commands:\n"
+		"\tlogin UID password\n"
+		"\tlogout\n"
+		"\tunregister\n"
+		"\thelp\n"
+		"\texit\n"
+	);
+}
+
+
 int main(int argc, char** argv) {
 	netbox_state_t netbox_state;
 
@@ -90,8 +102,12 @@ int main(int argc, char** argv) {
 			else
 				puts("You are still logged in. Please logout first.");
 		}
+		else if (strcmp(command, "help") == 0) {
+			print_available_commands();
+		}
 		else {
-			fprintf(stderr, "Invalid command! Do better.\n");
+			fprintf(stderr, "Invalid command! Do better.\n\n");
+			print_available_commands();
 		}
 	}
 
