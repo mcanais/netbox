@@ -6,3 +6,5 @@ main: code/main.c code/netbox.c code/netbox.h code/result.h
 
 clean:
 	rm -f netbox
+
+.PHONY: all clean
