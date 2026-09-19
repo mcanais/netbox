@@ -9,9 +9,9 @@
 #define DEFAULT_DIRECTORY_SERVER_ADDRESS "193.136.138.142"
 #define DEFAULT_DIRECTORY_SERVER_PORT 59000
 
+#define OP_WORD_LENGTH 3
 #define UID_LENGTH 6
 #define PASSWORD_LENGTH 8
-#define OP_WORD_LENGTH 3
 
 
 typedef struct netbox_state {

@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
 	// Main loop for user commands
 	char input_line[MAX_INPUT_LENGTH];
 	while (true) {
-		printf("> ");
+		printf("\n> ");
 		if (fgets(input_line, MAX_INPUT_LENGTH, stdin) == NULL) {
 			netbox_cleanup(&netbox_state);
 			exit(2);

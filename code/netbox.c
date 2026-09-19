@@ -1,3 +1,4 @@
+#include <asm-generic/errno-base.h>
 #include <linux/limits.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -9,18 +10,22 @@
 #include <netdb.h>
 #include <sys/stat.h>
 #include <limits.h>
+#include <errno.h>
 
 #include "result.h"
 #include "netbox.h"
 
 
-#define BASE_MESSAGE_LENGTH (OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1)
 #define MAX_UDP_PACKET_LENGTH ((1 << 16) - 20 - 8)  // IP header: 20, UDP header: 8
 
 #define MAX_16B_DIGITS 5
 #define MAX_64B_DIGITS 20
+#define MAX_FILENAME_LENGTH 24
+#define MAX_FILE_LABEL_LENGTH 20
+#define MAX_FILE_SIZE 10000000
+#define MAX_RLS_FILENAME_COUNT 50
 
-#define MAX_FILE_LABEL_LENGTH (MAX_UDP_PACKET_LENGTH - BASE_MESSAGE_LENGTH - NAME_MAX - 1 - MAX_64B_DIGITS - 2)
+#define BASE_MESSAGE_LENGTH (OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1)
 
 
 const struct timeval udp_timeout = { .tv_sec = 5, .tv_usec = 0 };
@@ -251,11 +256,6 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 }
 
 
-static bool is_file_valid(char *filename) {
-	return !access(filename, R_OK);
-}
-
-
 static off_t get_file_size(char *filename) {
 	struct stat file_status;
 	if (stat(filename, &file_status) < 0) {
@@ -267,22 +267,102 @@ static off_t get_file_size(char *filename) {
 }
 
 
+static res_t check_filename(char *filename) {
+	size_t filename_length = strnlen(filename, MAX_FILENAME_LENGTH + 1);
+	if (filename_length == MAX_FILENAME_LENGTH + 1)
+		return failure("Filename is too long.\n");
+
+	unsigned int i;  // filename_length is unsigned
+	for (i = 0; i < filename_length; i++) {
+		if (filename[i] == '.')
+			break;
+
+		if (!isalnum(filename[i]) && filename[i] != '-' && filename[i] != '_')
+			return failure(
+				"Invalid character in filename base.\n\tfilename %s\n\tchar: '%c'\n"
+				"Only letters, digits, - and _ are allowed.\n", filename, filename[i]
+			);
+	}
+
+	if (i == filename_length)
+		return failure("Filename doesn't have extension.\n\tfilename: %s\n", filename);
+
+	if (filename_length - (i + 1) != 3)
+		return failure("File must be exactly 3 characters long, like in the good old MS-DOS days.\n\tfilename: %s\n", filename);
+
+	i++;  // i was in the dot char, the extension comes after the dot
+	for (; i < filename_length; i++)
+		if (!isalnum(filename[i]))
+			return failure(
+				"Invalid character in file extension.\n\tfilename %s\n\tchar: '%c'\n"
+				"Only letters and digits are allowed.\n", filename, filename[i]
+			);
+
+	return SUCCESS;
+}
+
+
+static res_t check_file_permissions(char *filename) {
+	int ret;
+
+	// existence
+	errno = 0;
+	ret = access(filename, F_OK);
+	if (ret != 0) {
+		if (errno != ENOENT)  // it will set the errno to this if the file doesn't exist
+			return failure("Couldn't check the file existence.\n\tfile: %s\n", filename);
+		else
+			return failure("File doesn't exist.\n\tfile: %s\n", filename);
+	}
+
+	// permissions
+	errno = 0;
+	ret = access(filename, R_OK);
+	if (ret != 0) {
+		if (errno != EACCES)  // it will set the errno to this if the file doesn't have the permission
+			return failure("Couldn't check the file permissions.\n\tfile: %s\n", filename);
+		else
+			return failure("This user doesn't have read permission for the file.\n\tfile: %s\n", filename);
+	}
+
+	return SUCCESS;
+}
+
+
+static res_t check_file_size(char *filename) {
+	off_t file_size = get_file_size(filename);
+	if (file_size == -1)
+		return FAILURE;
+
+	if (file_size > MAX_FILE_SIZE)
+		return failure("Maximum file size exceeded.\n\tfile: %s\n", filename);
+
+	return SUCCESS;
+}
+
+
+static res_t check_file(char *filename) {
+	if (check_filename(filename) != SUCCESS ||
+		check_file_permissions(filename) != SUCCESS ||
+		check_file_size(filename) != SUCCESS)
+		return FAILURE;
+	return SUCCESS;
+}
+
+
 res_t  netbox_publish(netbox_state_t *netbox_state, char *filename, char *label) {
 	if (filename == NULL || label == NULL)
 		return failure("Publish usage: publish filename label\n");
 
-	// can't reuse this easly because the size of file_size is still unknown
-	if (strnlen(filename, NAME_MAX + 1) == NAME_MAX + 1)
-		return failure("Filename is too long.\n");
-
-	if (strnlen(filename, MAX_FILE_LABEL_LENGTH + 1) == MAX_FILE_LABEL_LENGTH + 1)
-		return failure("File label is too long.\n");
-
-	if (is_file_valid(filename))
+	if (check_file(filename) != SUCCESS)
 		return FAILURE;
 
+	// can't reuse this easly because the size of file_size is still unknown
+	if (strnlen(label, MAX_FILE_LABEL_LENGTH + 1) == MAX_FILE_LABEL_LENGTH + 1)
+		return failure("File label is too long.\n");
+
 	off_t file_size = get_file_size(filename);
-	if (file_size < -1)
+	if (file_size == -1)
 		return FAILURE;
 
 	size_t message_length = MAX_UDP_PACKET_LENGTH;
@@ -326,9 +406,10 @@ res_t  netbox_remove(netbox_state_t *netbox_state, char *filename) {
 	if (filename == NULL)
 		return failure("Remove usage: remove filename\n");
 
-	size_t filename_length = strnlen(filename, NAME_MAX + 1);
-	if (filename_length == NAME_MAX + 1)
-		return failure("Filename is too long.\n");
+	if (check_filename(filename) != SUCCESS)
+		return FAILURE;
+
+	size_t filename_length = strlen(filename);
 
 	size_t message_length = BASE_MESSAGE_LENGTH + filename_length + 1;
 	char message[message_length + 1];  // null char
@@ -366,6 +447,29 @@ res_t  netbox_remove(netbox_state_t *netbox_state, char *filename) {
 }
 
 
+static res_t parse_filenames(char *filenames, char *filenames_list[], int max_filename_count) {
+	if (max_filename_count == 0)
+		return failure("Hell nah broo!\n");
+
+	int i = 0;
+	filenames_list[i] = strtok(filenames, " ");
+
+	do {
+		if (i > max_filename_count) {
+			printf("Warning, too many resources were received, only showing some.\n");
+			return SUCCESS;
+		}
+
+		if (check_filename(filenames_list[i]) == SUCCESS)
+			i++;
+		else
+			return failure("Server sent an invalid filename, skipping it.\n");
+	} while((filenames_list[i] = strtok(NULL, " ")) != NULL);
+
+	return SUCCESS;
+}
+
+
 res_t  netbox_list(netbox_state_t *netbox_state) {
 	size_t message_length = OP_WORD_LENGTH + 1;
 	char message[] = "LST\n";
@@ -378,7 +482,7 @@ res_t  netbox_list(netbox_state_t *netbox_state) {
 
 	// see status code
 	if (strcmp(status, "OK") == 0) {
-		printf("Known resources:\n");
+		;//)
 	}
 	else if (strcmp(status, "NOK") == 0) {
 		return failure("No resources are currently known.\n");
@@ -394,14 +498,20 @@ res_t  netbox_list(netbox_state_t *netbox_state) {
 		return failure("Unkown status code from the server.\n");
 	}
 
-	char *filenames = status + strlen(status) + 1;  // skip the status code
-	while (*filenames != '\0')
-		if (!isprint(*filenames++))  // letters + digits + special chars + space
-			return failure("Invalid response from the server. Invalid filename character.\n");
+	char *filenames_section = status + strlen(status) + 1;  // skip the status code
+	char *filenames_list[MAX_RLS_FILENAME_COUNT] = {};
+	if (parse_filenames(filenames_section, filenames_list, MAX_RLS_FILENAME_COUNT) != SUCCESS)
+		return FAILURE;
 
-	char *filename;
-	while ((filename = strtok(NULL, " ")) != NULL)
-		printf("%s\n", filename);
+	if (filenames_list[0] == NULL) {
+		printf("The server doesn't have any resources. :/\n");
+		return SUCCESS;
+	}
+
+	printf("Known resources:\n");
+	int i = 0;
+	while (filenames_list[i] != NULL)
+		printf("\t%s\n", filenames_list[i++]);
 
 	return SUCCESS;
 }
