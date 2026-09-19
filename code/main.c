@@ -1,3 +1,7 @@
+//TODO: maybe display errno with strerror()?
+//TODO: seperate main in the way pedro wants.
+//TODO: maybe seperate the argument checking in the functions that do that
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -20,8 +24,11 @@ void print_available_commands() {
 		"\tlogin UID password\n"
 		"\tlogout\n"
 		"\tunregister\n"
-		"\thelp\n"
 		"\texit\n"
+		"\tpublish filename label\n"
+		"\tremove filename\n"
+		"\tlist\n"
+		"\thelp\n"
 	);
 }
 
@@ -79,15 +86,14 @@ int main(int argc, char** argv) {
 			netbox_cleanup(&netbox_state);
 			exit(2);
 		}
-		input_line[strlen(input_line) - 1] = '\0';
 
-		char *command = strtok(input_line, " ");
+		char *command = strtok(input_line, " \n");
 		if (command == NULL)
 			continue;
 
 		if (strcmp(command, "login") == 0) {
 			char *uid = strtok(NULL, " ");
-			char *password = strtok(NULL, " ");
+			char *password = strtok(NULL, " \n");
 			netbox_login(&netbox_state, uid, password);
 		}
 		else if (strcmp(command, "logout") == 0) {
@@ -101,6 +107,18 @@ int main(int argc, char** argv) {
 				break;
 			else
 				puts("You are still logged in. Please logout first.");
+		}
+		else if (strcmp(command, "publish") == 0) {
+			char *filename = strtok(NULL, " ");
+			char *label = strtok(NULL, " \n");
+			netbox_publish(&netbox_state, filename, label);
+		}
+		else if (strcmp(command, "remove") == 0) {
+			char *filename = strtok(NULL, " \n");
+			netbox_remove(&netbox_state, filename);
+		}
+		else if (strcmp(command, "list") == 0) {
+			netbox_list(&netbox_state);
 		}
 		else if (strcmp(command, "help") == 0) {
 			print_available_commands();

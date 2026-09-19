@@ -12,7 +12,6 @@
 #define UID_LENGTH 6
 #define PASSWORD_LENGTH 8
 #define OP_WORD_LENGTH 3
-#define MAX_REPLY_LENGTH 10
 
 
 typedef struct netbox_state {
@@ -89,4 +88,11 @@ res_t netbox_logout(netbox_state_t* netbox_state);
  */
 res_t netbox_unregister(netbox_state_t* netbox_state);
 
+
+// TODO: documentation
+res_t  netbox_publish(netbox_state_t *netbox_state, char *filename, char *label);
+
+res_t  netbox_remove(netbox_state_t *netbox_state, char *filename);
+
+res_t  netbox_list(netbox_state_t *netbox_state);
 #endif
