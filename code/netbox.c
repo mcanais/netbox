@@ -21,6 +21,7 @@
 #define MAX_16B_DIGITS 5
 #define MAX_64B_DIGITS 20
 #define MAX_FILENAME_LENGTH 24
+#define FILENAME_EXTENSION_SIZE 3
 #define MAX_FILE_LABEL_LENGTH 20
 #define MAX_FILE_SIZE 10000000
 #define MAX_RLS_FILENAME_COUNT 50
@@ -270,7 +271,7 @@ static off_t get_file_size(char *filename) {
 static res_t check_filename(char *filename) {
 	size_t filename_length = strnlen(filename, MAX_FILENAME_LENGTH + 1);
 	if (filename_length == MAX_FILENAME_LENGTH + 1)
-		return failure("Filename is too long.\n");
+		return failure("Filename is too long.\nThe limit is %d characters.\n", MAX_FILENAME_LENGTH);
 
 	unsigned int i;  // filename_length is unsigned
 	for (i = 0; i < filename_length; i++) {
@@ -287,8 +288,8 @@ static res_t check_filename(char *filename) {
 	if (i == filename_length)
 		return failure("Filename doesn't have extension.\n\tfilename: %s\n", filename);
 
-	if (filename_length - (i + 1) != 3)
-		return failure("File must be exactly 3 characters long, like in the good old MS-DOS days.\n\tfilename: %s\n", filename);
+	if (filename_length - (i + 1) != FILENAME_EXTENSION_SIZE)
+		return failure("File must be exactly %d characters long, like in the good old MS-DOS days.\n\tfilename: %s\n", FILENAME_EXTENSION_SIZE, filename);
 
 	i++;  // i was in the dot char, the extension comes after the dot
 	for (; i < filename_length; i++)
@@ -359,7 +360,7 @@ res_t  netbox_publish(netbox_state_t *netbox_state, char *filename, char *label)
 
 	// can't reuse this easly because the size of file_size is still unknown
 	if (strnlen(label, MAX_FILE_LABEL_LENGTH + 1) == MAX_FILE_LABEL_LENGTH + 1)
-		return failure("File label is too long.\n");
+		return failure("File label is too long.\nThe limit is %d characters.\n", MAX_FILE_LABEL_LENGTH);
 
 	off_t file_size = get_file_size(filename);
 	if (file_size == -1)
