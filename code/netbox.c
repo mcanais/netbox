@@ -30,7 +30,6 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 	static char reply[MAX_UDP_PACKET_LENGTH + 1];  // null char
 	memset(reply, 0, sizeof(reply));  // clear the buffer
 
-	printf("|%s|\n", message);
 	// send message
 	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
 		return failure("Couldn't communicate with server.\n");
@@ -40,7 +39,6 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 	if (bytes_read < 0)
 		return failure("Couldn't receive confirmation from the server.\n");
  
-	printf("|%s|\n", reply);
 	char *op_word = strtok(reply, " ");
 	*status = strtok(NULL, "\n");
 
@@ -160,6 +158,9 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	else if (strcmp(status, "NOK") == 0) {
 		return failure("Incorrect login attempt.\n");
 	}
+	else if (strcmp(status, "ERR") == 0) {
+		return failure("The server received a malformed message and didn't like it.\n");
+	}
 	else {
 		return failure("Unkown status code from the server.\n");
 	}
@@ -198,6 +199,9 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 	else if (strcmp(status, "WRP") == 0) {
 		return failure("Wrong password.\n");
 	}
+	else if (strcmp(status, "ERR") == 0) {
+		return failure("The server received a malformed message and didn't like it.\n");
+	}
 	else {
 		return failure("Unkown status code from the server.\n");
 	}
@@ -234,6 +238,9 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 	}
 	else if (strcmp(status, "WRP") == 0) {
 		return failure("Wrong password.\n");
+	}
+	else if (strcmp(status, "ERR") == 0) {
+		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
 		return failure("Unknown status code from the server.\n");
@@ -304,6 +311,9 @@ res_t  netbox_publish(netbox_state_t *netbox_state, char *filename, char *label)
 	else if (strcmp(status, "WRP") == 0) {
 		return failure("Wrong password.\n");
 	}
+	else if (strcmp(status, "ERR") == 0) {
+		return failure("The server received a malformed message and didn't like it.\n");
+	}
 	else {
 		return failure("Unkown status code from the server.\n");
 	}
@@ -345,6 +355,9 @@ res_t  netbox_remove(netbox_state_t *netbox_state, char *filename) {
 	else if (strcmp(status, "WRP") == 0) {
 		return failure("Wrong password.\n");
 	}
+	else if (strcmp(status, "ERR") == 0) {
+		return failure("The server received a malformed message and didn't like it.\n");
+	}
 	else {
 		return failure("Unkown status code from the server.\n");
 	}
@@ -373,6 +386,9 @@ res_t  netbox_list(netbox_state_t *netbox_state) {
 	else if (strcmp(status, "NLG") == 0) {
 		netbox_state->is_logged_in = false; // Make sure the client is consistent with the server
 		return failure("User not logged in.\n");
+	}
+	else if (strcmp(status, "ERR") == 0) {
+		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
 		return failure("Unkown status code from the server.\n");
