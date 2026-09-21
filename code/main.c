@@ -111,11 +111,11 @@ int main(int argc, char** argv) {
 		else if (strcmp(command, "publish") == 0) {
 			char *filename = strtok(NULL, " ");
 			char *label = strtok(NULL, " \n");
-			netbox_publish(&netbox_state, filename, label);
+			netbox_publish_file(&netbox_state, filename, label);
 		}
 		else if (strcmp(command, "remove") == 0) {
 			char *filename = strtok(NULL, " \n");
-			netbox_remove(&netbox_state, filename);
+			netbox_remove_file(&netbox_state, filename);
 		}
 		else if (strcmp(command, "list") == 0) {
 			netbox_list(&netbox_state);

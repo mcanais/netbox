@@ -351,14 +351,14 @@ static res_t check_file(char *filename) {
 }
 
 
-res_t  netbox_publish(netbox_state_t *netbox_state, char *filename, char *label) {
+res_t  netbox_publish_file(netbox_state_t *netbox_state, char *filename, char *label) {
 	if (filename == NULL || label == NULL)
 		return failure("Publish usage: publish filename label\n");
 
 	if (check_file(filename) != SUCCESS)
 		return FAILURE;
 
-	// can't reuse this easly because the size of file_size is still unknown
+	// Can't reuse this easily because the size of file_size is still unknown
 	if (strnlen(label, MAX_FILE_LABEL_LENGTH + 1) == MAX_FILE_LABEL_LENGTH + 1)
 		return failure("File label is too long.\nThe limit is %d characters.\n", MAX_FILE_LABEL_LENGTH);
 
@@ -403,7 +403,7 @@ res_t  netbox_publish(netbox_state_t *netbox_state, char *filename, char *label)
 }
 
 
-res_t  netbox_remove(netbox_state_t *netbox_state, char *filename) {
+res_t netbox_remove_file(netbox_state_t *netbox_state, char *filename) {
 	if (filename == NULL)
 		return failure("Remove usage: remove filename\n");
 
@@ -471,7 +471,7 @@ static res_t parse_filenames(char *filenames, char *filenames_list[], int max_fi
 }
 
 
-res_t  netbox_list(netbox_state_t *netbox_state) {
+res_t netbox_list(netbox_state_t *netbox_state) {
 	size_t message_length = OP_WORD_LENGTH + 1;
 	char message[] = "LST\n";
 	
@@ -518,6 +518,6 @@ res_t  netbox_list(netbox_state_t *netbox_state) {
 }
 
 
-res_t  netbox_versions(netbox_state_t *netbox_state, char *filename) {
+res_t netbox_versions(netbox_state_t *netbox_state, char *filename) {
 	return SUCCESS;
 }

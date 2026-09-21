@@ -90,9 +90,10 @@ res_t netbox_unregister(netbox_state_t* netbox_state);
 
 
 // TODO: documentation
-res_t  netbox_publish(netbox_state_t *netbox_state, char *filename, char *label);
+res_t  netbox_publish_file(netbox_state_t *netbox_state, char *filename, char *label);
 
-res_t  netbox_remove(netbox_state_t *netbox_state, char *filename);
+res_t  netbox_remove_file(netbox_state_t *netbox_state, char *filename);
 
 res_t  netbox_list(netbox_state_t *netbox_state);
+
 #endif
