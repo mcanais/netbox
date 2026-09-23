@@ -20,9 +20,8 @@ typedef struct netbox_state {
 	unsigned short peer_server_port;
 	unsigned short directory_server_port;
 	char* directory_server_address; // Can be either the domain name or an IP address
-	struct addrinfo* directory_server_address_info;
 	int udp_socket_fd;
-	int tcp_socket_fd;
+	struct addrinfo* tcp_server_address_info;
 	bool is_logged_in;
 } netbox_state_t;
 
@@ -90,10 +89,12 @@ res_t netbox_unregister(netbox_state_t* netbox_state);
 
 
 // TODO: documentation
-res_t  netbox_publish_file(netbox_state_t *netbox_state, char *filename, char *label);
+res_t netbox_file_publish(netbox_state_t *netbox_state, char *filename, char *label);
 
-res_t  netbox_remove_file(netbox_state_t *netbox_state, char *filename);
+res_t netbox_file_remove(netbox_state_t *netbox_state, char *filename);
 
-res_t  netbox_list(netbox_state_t *netbox_state);
+res_t netbox_files_list(netbox_state_t *netbox_state);
+
+res_t netbox_file_versions(netbox_state_t *netbox_state, char *filename);
 
 #endif

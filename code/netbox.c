@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #include "result.h"
 #include "netbox.h"
@@ -62,6 +63,90 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 }
 
 
+static int tcp_estabilish_connection(netbox_state_t* netbox_state) {
+	int tcp_socket_fd = socket(netbox_state->tcp_server_address_info->ai_family, netbox_state->tcp_server_address_info->ai_socktype, netbox_state->tcp_server_address_info->ai_protocol);
+
+	if (tcp_socket_fd == -1) {
+		fprintf(stderr, "Failed to create TCP socket.\n");
+		return -1;
+	}
+
+	if (connect(tcp_socket_fd, netbox_state->tcp_server_address_info->ai_addr, netbox_state->tcp_server_address_info->ai_addrlen) != 0) {
+		close(tcp_socket_fd);
+		fprintf(stderr, "Failed to estabilish TCP connection to the server.\n");
+		return -1;
+	}
+
+	return tcp_socket_fd;
+}
+
+
+static res_t tcp_send_message(int tcp_socket_fd, char* message, size_t message_length) {
+	size_t bytes_sent = 0;
+	while (bytes_sent != message_length) {
+		ssize_t send_result = send(tcp_socket_fd, &(message[bytes_sent]), message_length - bytes_sent, 0);
+
+		if (send_result == -1) {
+			return failure("Failed to send TCP message. Already sent %d bytes, %d bytes left.\n", bytes_sent, message_length - bytes_sent);
+		}
+
+		bytes_sent += (size_t)send_result;
+	}
+
+	return SUCCESS;
+}
+
+
+static ssize_t tcp_receive_message(int tcp_socket_fd, char** message) {
+	size_t bytes_received = 0;
+	size_t current_buffer_size = 1024;
+	char* buffer = malloc(current_buffer_size);
+
+	if (buffer == NULL) {
+		fprintf(stderr, "Failed to allocate message buffer.\n");
+		return -1;
+	}
+
+	while (true) {
+		ssize_t receive_result = recv(tcp_socket_fd, &(buffer[bytes_received]), current_buffer_size - bytes_received, 0);
+
+		if (receive_result == -1) {
+			free(buffer);
+			fprintf(stderr, "Failed to receive TCP message.\n");
+			return -1;
+		}
+
+		if (receive_result == 0) {
+			// Readjust the message size to only be the used bytes in order to not waste memory
+			buffer = realloc(buffer, bytes_received + 1);
+
+			if (buffer == NULL) {
+				fprintf(stderr, "Failed to reallocate message buffer.\n");
+				return -1;
+			}
+
+			buffer[bytes_received] = '\0';
+			*message = buffer;
+			return bytes_received;
+		}
+
+		bytes_received += (size_t)receive_result;
+
+		if (bytes_received >= 0.9 * current_buffer_size) {
+			current_buffer_size *= 2;
+			buffer = realloc(buffer, current_buffer_size);
+
+			if (buffer == NULL) {
+				fprintf(stderr, "Failed to reallocate message buffer.\n");
+				return -1;
+			}
+		}
+	}
+	
+	return -1;
+}
+
+
 res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* directory_server_address, int directory_server_port) {
 	netbox_state->directory_server_address = directory_server_address == NULL ? DEFAULT_DIRECTORY_SERVER_ADDRESS : directory_server_address;
 	netbox_state->directory_server_port = directory_server_port == 0 ? DEFAULT_DIRECTORY_SERVER_PORT : directory_server_port;
@@ -69,49 +154,58 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 
 	// Create the UDP socket and connect it to the Directory Server
 	struct addrinfo hints = {0};
-	struct addrinfo* server_address_info;
-
+	struct addrinfo* udp_server_address_info;
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_DGRAM;
 
 	char directory_server_port_string[20];
 	snprintf(directory_server_port_string, sizeof(directory_server_port_string), "%hu", netbox_state->directory_server_port);
 
-	if (getaddrinfo(netbox_state->directory_server_address, directory_server_port_string, &hints, &server_address_info) != 0)
+	if (getaddrinfo(netbox_state->directory_server_address, directory_server_port_string, &hints, &udp_server_address_info) != 0)
 		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
 
-	int udp_socket_fd = socket(server_address_info->ai_family, server_address_info->ai_socktype, server_address_info->ai_protocol);
+	int udp_socket_fd = socket(udp_server_address_info->ai_family, udp_server_address_info->ai_socktype, udp_server_address_info->ai_protocol);
 	if (udp_socket_fd == -1) {
-		freeaddrinfo(server_address_info);
+		freeaddrinfo(udp_server_address_info);
 		return failure("Failed to create UDP socket.\n");
 	}
 
 	// Set UDP socket timeout to 5 seconds
 	if (setsockopt(udp_socket_fd, SOL_SOCKET, SO_RCVTIMEO, &udp_timeout, sizeof(udp_timeout)) != 0) {
-		freeaddrinfo(server_address_info);
+		freeaddrinfo(udp_server_address_info);
 		close(udp_socket_fd);
 		return failure("Failed to configure UDP socket options.\n");
 	}
 
-	if (connect(udp_socket_fd, server_address_info->ai_addr, server_address_info->ai_addrlen) < 0) {
-		freeaddrinfo(server_address_info);
+	if (connect(udp_socket_fd, udp_server_address_info->ai_addr, udp_server_address_info->ai_addrlen) < 0) {
+		freeaddrinfo(udp_server_address_info);
 		close(udp_socket_fd);
 		return failure("Failed to estabilish UDP connection with the server.\n");
 	}
 
+	freeaddrinfo(udp_server_address_info);
+
+	struct addrinfo* tcp_server_address_info;
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	if (getaddrinfo(netbox_state->directory_server_address, directory_server_port_string, &hints, &tcp_server_address_info) != 0) {
+		close(udp_socket_fd);
+		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+	}
+
 	netbox_state->is_logged_in = false;
-	netbox_state->directory_server_address_info = server_address_info;
 	netbox_state->udp_socket_fd = udp_socket_fd;
+	netbox_state->tcp_server_address_info = tcp_server_address_info;
 
 	return SUCCESS;
 }
 
 
 res_t netbox_cleanup(netbox_state_t* netbox_state) {
-	if (close(netbox_state->udp_socket_fd) == -1) {
-		return failure("Failed to close UDP socket.\n");
-	}
-	freeaddrinfo(netbox_state->directory_server_address_info);
+	 // No early returning on error, its a best effort approach
+	close(netbox_state->udp_socket_fd);
+	freeaddrinfo(netbox_state->tcp_server_address_info);
 	return SUCCESS;
 }
 
@@ -269,6 +363,10 @@ static off_t get_file_size(char *filename) {
 
 
 static res_t check_filename(char *filename) {
+	if (filename == NULL) {
+		return failure("Filename cannot be NULL\n");
+	}
+
 	size_t filename_length = strnlen(filename, MAX_FILENAME_LENGTH + 1);
 	if (filename_length == MAX_FILENAME_LENGTH + 1)
 		return failure("Filename is too long.\nThe limit is %d characters.\n", MAX_FILENAME_LENGTH);
@@ -351,7 +449,7 @@ static res_t check_file(char *filename) {
 }
 
 
-res_t  netbox_publish_file(netbox_state_t *netbox_state, char *filename, char *label) {
+res_t netbox_file_publish(netbox_state_t *netbox_state, char *filename, char *label) {
 	if (filename == NULL || label == NULL)
 		return failure("Publish usage: publish filename label\n");
 
@@ -403,7 +501,7 @@ res_t  netbox_publish_file(netbox_state_t *netbox_state, char *filename, char *l
 }
 
 
-res_t netbox_remove_file(netbox_state_t *netbox_state, char *filename) {
+res_t netbox_file_remove(netbox_state_t *netbox_state, char *filename) {
 	if (filename == NULL)
 		return failure("Remove usage: remove filename\n");
 
@@ -471,7 +569,7 @@ static res_t parse_filenames(char *filenames, char *filenames_list[], int max_fi
 }
 
 
-res_t netbox_list(netbox_state_t *netbox_state) {
+res_t netbox_files_list(netbox_state_t *netbox_state) {
 	size_t message_length = OP_WORD_LENGTH + 1;
 	char message[] = "LST\n";
 	
@@ -518,6 +616,100 @@ res_t netbox_list(netbox_state_t *netbox_state) {
 }
 
 
-res_t netbox_versions(netbox_state_t *netbox_state, char *filename) {
+res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
+	if (check_filename(filename) != SUCCESS) {
+		return FAILURE;
+	}
+
+	// =========== Send TCP request and wait for response ===========
+	int tcp_socket_fd = tcp_estabilish_connection(netbox_state);
+
+	if (tcp_socket_fd == -1) {
+		return FAILURE;
+	}
+
+	size_t filename_length = strlen(filename);
+	size_t message_length = OP_WORD_LENGTH + 1 + filename_length + 1;
+	char message[message_length + 1];
+	sprintf(message, "VRS %s\n", filename);
+
+	if (tcp_send_message(tcp_socket_fd, message, message_length) != SUCCESS) {
+		close(tcp_socket_fd);
+		return FAILURE;
+	}
+
+	char* buffer;
+	if (tcp_receive_message(tcp_socket_fd, &buffer) == -1) {
+		close(tcp_socket_fd);
+		return FAILURE;
+	}
+
+	char* op_word = strtok(buffer, " ");
+	if (op_word == NULL || strcmp(op_word, "RVR") != 0) {
+		free(buffer);
+		close(tcp_socket_fd);
+		return failure("Invalid op word from the server.\n");
+	}
+
+	// =========== Check status code ===========
+	char* status = strtok(NULL, " ");
+
+	if (status == NULL) {
+		free(buffer);
+		close(tcp_socket_fd);
+		return failure("Invalid status code from the server.\n");
+	}
+
+	if (strcmp(status, "OK") == 0) {
+		// All good
+	}
+	else if (strcmp(status, "NOK\n") == 0) {
+		free(buffer);
+		close(tcp_socket_fd);
+		printf("No peer is available for the specified resource.\n");
+		return SUCCESS;
+	}
+	else {
+		free(buffer);
+		close(tcp_socket_fd);
+		return failure("Unknown status code from the server.\n");
+	}
+
+	// =========== Read all version entries ===========
+	char* start_of_versions = status + 3;
+	int total_bytes_read = 0;
+	while (true) {
+		char uid[7];
+		size_t file_size;
+		char label[21];
+		char publication_time[16];
+		char availability[4];
+		int bytes_read;
+
+		int n = sscanf(start_of_versions + total_bytes_read, "%6s %zu %20s %15s %3s%n", uid, &file_size, label, publication_time, availability, &bytes_read);
+		total_bytes_read += bytes_read;
+
+		if (n == -1) {
+			free(buffer);
+			close(tcp_socket_fd);
+			return SUCCESS;
+		}
+		else if (n != 5) {
+			free(buffer);
+			close(tcp_socket_fd);
+			return failure("Failed to read version information.\n");
+		}
+
+		printf("User: %s, File size: %zu, Label: %s, Publication Time: %s, ", uid, file_size, label, publication_time);
+
+		if (strcmp(availability, "AVL") == 0) {
+			printf("Available\n");
+		} else if (strcmp(availability, "NAV") == 0) {
+			printf("Not available\n");
+		}
+	}
+
+	free(buffer);
+	close(tcp_socket_fd);
 	return SUCCESS;
 }

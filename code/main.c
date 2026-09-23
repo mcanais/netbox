@@ -23,11 +23,12 @@ void print_available_commands() {
 		"\tlogin UID password\n"
 		"\tlogout\n"
 		"\tunregister\n"
-		"\texit\n"
 		"\tpublish filename label\n"
 		"\tremove filename\n"
 		"\tlist\n"
+		"\tversions filename\n"
 		"\thelp\n"
+		"\texit\n"
 	);
 }
 
@@ -59,26 +60,30 @@ void user_commands_loop(netbox_state_t* netbox_state) {
 		else if (strcmp(command, "unregister") == 0) {
 			netbox_unregister(netbox_state);
 		}
+		else if (strcmp(command, "publish") == 0) {
+			char *filename = strtok(NULL, " ");
+			char *label = strtok(NULL, " \n");
+			netbox_file_publish(netbox_state, filename, label);
+		}
+		else if (strcmp(command, "remove") == 0) {
+			char *filename = strtok(NULL, " \n");
+			netbox_file_remove(netbox_state, filename);
+		}
+		else if (strcmp(command, "list") == 0) {
+			netbox_files_list(netbox_state);
+		}
+		else if (strcmp(command, "versions") == 0) {
+			char *filename = strtok(NULL, " \n");
+			netbox_file_versions(netbox_state, filename);
+		}
+		else if (strcmp(command, "help") == 0) {
+			print_available_commands();
+		}
 		else if (strcmp(command, "exit") == 0) {
 			if (!netbox_state->is_logged_in)
 				break;
 			else
 				puts("You are still logged in. Please logout first.");
-		}
-		else if (strcmp(command, "publish") == 0) {
-			char *filename = strtok(NULL, " ");
-			char *label = strtok(NULL, " \n");
-			netbox_publish_file(netbox_state, filename, label);
-		}
-		else if (strcmp(command, "remove") == 0) {
-			char *filename = strtok(NULL, " \n");
-			netbox_remove_file(netbox_state, filename);
-		}
-		else if (strcmp(command, "list") == 0) {
-			netbox_list(netbox_state);
-		}
-		else if (strcmp(command, "help") == 0) {
-			print_available_commands();
 		}
 		else {
 			fprintf(stderr, "Invalid command! Do better.\n\n");
