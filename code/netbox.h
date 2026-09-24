@@ -58,8 +58,8 @@ res_t netbox_cleanup(netbox_state_t* netbox_state);
  * and then becomes logged in.
  *
  * @param netbox_state  Pointer to the netbox state.
- * @param uid           Username to use in the login
- * @param password      Password to use in the login
+ * @param uid           Username to use in the login.
+ * @param password      Password to use in the login.
  *
  * @return Whether the operation was successful or not.
  */
@@ -88,13 +88,50 @@ res_t netbox_logout(netbox_state_t* netbox_state);
 res_t netbox_unregister(netbox_state_t* netbox_state);
 
 
-// TODO: documentation
-res_t netbox_file_publish(netbox_state_t *netbox_state, char *filename, char *label);
+/**
+ * Publishes a file to the Directory Server, i.e,
+ * it tells the Directory Server that the specified file
+ * is ready to be downloaded by other clients.
+ * 
+ * @param netbox_state  Pointer to the netbox state.
+ * @param filename      Name of the file to be published.
+ * @param label         Small description of the file.
+ *
+ * @return Whether the operation was successful or not.
+ */
+res_t netbox_file_publish(netbox_state_t* netbox_state, char* filename, char* label);
 
-res_t netbox_file_remove(netbox_state_t *netbox_state, char *filename);
 
-res_t netbox_files_list(netbox_state_t *netbox_state);
+/**
+ * Removes a file from the Directory Server's list of published files.
+ * 
+ * @param netbox_state  Pointer to the netbox state.
+ * @param filename      Name of the file to be removed.
+ *
+ * @return Whether the operation was successful or not.
+ */
+res_t netbox_file_remove(netbox_state_t* netbox_state, char* filename);
 
-res_t netbox_file_versions(netbox_state_t *netbox_state, char *filename);
+
+/**
+ * Displays the Directory Server's list of published files.
+ * 
+ * @param netbox_state  Pointer to the netbox state.
+ *
+ * @return Whether the operation was successful or not.
+ */
+res_t netbox_files_list(netbox_state_t* netbox_state);
+
+
+/**
+ * Displays all the versions of a file that were published to the Directory Server
+ * by different clients.
+ * 
+ * @param netbox_state  Pointer to the netbox state.
+ * @param filename      Name of the file.
+ *
+ * @return Whether the operation was successful or not.
+ */
+res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename);
 
 #endif
