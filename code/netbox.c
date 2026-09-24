@@ -450,6 +450,10 @@ static res_t check_file(char *filename) {
 
 
 res_t netbox_file_publish(netbox_state_t *netbox_state, char *filename, char *label) {
+	if (!netbox_state->is_logged_in) {
+		return failure("You are not logged in.\n");
+	}
+
 	if (filename == NULL || label == NULL)
 		return failure("Publish usage: publish filename label\n");
 
@@ -502,6 +506,10 @@ res_t netbox_file_publish(netbox_state_t *netbox_state, char *filename, char *la
 
 
 res_t netbox_file_remove(netbox_state_t *netbox_state, char *filename) {
+	if (!netbox_state->is_logged_in) {
+		return failure("You are not logged in.\n");
+	}
+
 	if (filename == NULL)
 		return failure("Remove usage: remove filename\n");
 
