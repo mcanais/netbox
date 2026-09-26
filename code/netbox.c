@@ -16,6 +16,9 @@
 #include "result.h"
 #include "netbox.h"
 
+#define _STRINGFY(x) #x
+#define STRINGFY(x) _STRINGFY(x)
+
 
 #define MAX_UDP_PACKET_LENGTH ((1 << 16) - 20 - 8)  // IP header: 20, UDP header: 8
 
@@ -25,6 +28,9 @@
 #define FILENAME_EXTENSION_SIZE 3
 #define MAX_FILE_LABEL_LENGTH 20
 #define MAX_FILE_SIZE 10000000
+#define MAX_PUBLICATION_TIME_LENGTH 15  // YYYYMMDD-hhmmss
+#define AVAILABILITY_LENGTH 3
+
 #define MAX_RLS_FILENAME_COUNT 50
 
 #define BASE_MESSAGE_LENGTH (OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1)
@@ -387,7 +393,7 @@ static res_t check_filename(char *filename) {
 		return failure("Filename doesn't have extension.\n\tfilename: %s\n", filename);
 
 	if (filename_length - (i + 1) != FILENAME_EXTENSION_SIZE)
-		return failure("File must be exactly %d characters long, like in the good old MS-DOS days.\n\tfilename: %s\n", FILENAME_EXTENSION_SIZE, filename);
+		return failure("File must be exactly "STRINGFY(FILENAME_EXTENSION_SIZE)" characters long, like in the good old MS-DOS days.\n\tfilename: %s\n", filename);
 
 	i++;  // i was in the dot char, the extension comes after the dot
 	for (; i < filename_length; i++)
@@ -462,7 +468,7 @@ res_t netbox_file_publish(netbox_state_t *netbox_state, char *filename, char *la
 
 	// Can't reuse this easily because the size of file_size is still unknown
 	if (strnlen(label, MAX_FILE_LABEL_LENGTH + 1) == MAX_FILE_LABEL_LENGTH + 1)
-		return failure("File label is too long.\nThe limit is %d characters.\n", MAX_FILE_LABEL_LENGTH);
+		return failure("File label is too long.\nThe limit is "STRINGFY(MAX_FILE_LABEL_LENGTH)" characters.\n");
 
 	off_t file_size = get_file_size(filename);
 	if (file_size == -1)
@@ -670,7 +676,7 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 		// All good
 	}
 	else if (strcmp(status, "NOK\n") == 0) {
-		printf("No peer is available for the specified resource. filename: %s\n", filename);
+		printf("No peer is available for the specified resource.\n\tfilename: %s\n", filename);
 
 		ret = SUCCESS;
 		goto exit;
@@ -695,7 +701,14 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 		char availability[4];
 		int bytes_read;
 
-		int n = sscanf(start_of_versions + total_bytes_read, "%6s %zu %20s %15s %3s%n", uid, &file_size, label, publication_time, availability, &bytes_read);
+		//FIXME: se a resposta for uma string de 50 'a' de seguida, todas as strings vão ser a e tu vais achar que está tudo bem. %15s %3s não obriga a que exist um espaço entre as strings.
+		int n = sscanf(start_of_versions + total_bytes_read, 
+				"%"STRINGFY(UID_LENGTH)"s "
+				 "%zu "
+				 "%"STRINGFY(MAX_FILE_LABEL_LENGTH)"s "
+				 "%"STRINGFY(MAX_PUBLICATION_TIME_LENGTH)"s "
+				 "%"STRINGFY(AVAILABILITY_LENGTH)"s%n",
+				 uid, &file_size, label, publication_time, availability, &bytes_read);
 		total_bytes_read += bytes_read;
 
 		// FIXME: check uid?
