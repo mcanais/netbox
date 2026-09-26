@@ -625,66 +625,67 @@ res_t netbox_files_list(netbox_state_t *netbox_state) {
 
 
 res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
+	int tcp_socket_fd = -1;
+	char* buffer = NULL;
+	res_t ret = FAILURE;
+
 	if (check_filename(filename) != SUCCESS) {
-		return FAILURE;
+		goto exit;
 	}
 
 	// =========== Send TCP request and wait for response ===========
-	int tcp_socket_fd = tcp_estabilish_connection(netbox_state);
-
+	tcp_socket_fd = tcp_estabilish_connection(netbox_state);
 	if (tcp_socket_fd == -1) {
-		return FAILURE;
+		goto exit;
 	}
 
-	size_t filename_length = strlen(filename);
-	size_t message_length = OP_WORD_LENGTH + 1 + filename_length + 1;
-	char message[message_length + 1];
+	// The size must be a compile time constant, or the goto won't work.
+	char message[OP_WORD_LENGTH + 1 + MAX_FILENAME_LENGTH + 1 + 1];
 	sprintf(message, "VRS %s\n", filename);
+	size_t message_length = strlen(message);
 
 	if (tcp_send_message(tcp_socket_fd, message, message_length) != SUCCESS) {
-		close(tcp_socket_fd);
-		return FAILURE;
+		goto exit;
 	}
 
-	char* buffer;
 	if (tcp_receive_message(tcp_socket_fd, &buffer) == -1) {
-		close(tcp_socket_fd);
-		return FAILURE;
+		goto exit;
 	}
 
 	char* op_word = strtok(buffer, " ");
 	if (op_word == NULL || strcmp(op_word, "RVR") != 0) {
-		free(buffer);
-		close(tcp_socket_fd);
-		return failure("Invalid op word from the server.\n");
+		failure("Invalid op word from the server.\n");
+		goto exit;
 	}
 
 	// =========== Check status code ===========
 	char* status = strtok(NULL, " ");
 
 	if (status == NULL) {
-		free(buffer);
-		close(tcp_socket_fd);
-		return failure("Invalid status code from the server.\n");
+		failure("Invalid status code from the server.\n");
+		goto exit;
 	}
 
 	if (strcmp(status, "OK") == 0) {
 		// All good
 	}
 	else if (strcmp(status, "NOK\n") == 0) {
-		free(buffer);
-		close(tcp_socket_fd);
-		printf("No peer is available for the specified resource.\n");
-		return SUCCESS;
+		printf("No peer is available for the specified resource. filename: %s\n", filename);
+
+		ret = SUCCESS;
+		goto exit;
+	}
+	else if (strcmp(status, "ERR") == 0) {
+		failure("The server received a malformed message and didn't like it.\n");
+		goto exit;
 	}
 	else {
-		free(buffer);
-		close(tcp_socket_fd);
-		return failure("Unknown status code from the server.\n");
+		failure("Unknown status code from the server.\n");
+		goto exit;
 	}
 
 	// =========== Read all version entries ===========
-	char* start_of_versions = status + 3;
+	char* start_of_versions = status + strlen(status) + 1;
 	int total_bytes_read = 0;
 	while (true) {
 		char uid[7];
@@ -697,19 +698,20 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 		int n = sscanf(start_of_versions + total_bytes_read, "%6s %zu %20s %15s %3s%n", uid, &file_size, label, publication_time, availability, &bytes_read);
 		total_bytes_read += bytes_read;
 
-		if (n == -1) {
-			free(buffer);
-			close(tcp_socket_fd);
-			return SUCCESS;
+		// FIXME: check uid?
+		// FIXME: check file size?
+
+		if (n == EOF) {
+			break;
 		}
-		else if (n != 5) {
-			free(buffer);
-			close(tcp_socket_fd);
-			return failure("Failed to read version information.\n");
+		else if (n < 5) {
+			failure("Failed to read version information.\n");
+			goto exit;
 		}
 
 		printf("User: %s, File size: %zu, Label: %s, Publication Time: %s, ", uid, file_size, label, publication_time);
 
+		// FIXME: what if it isn't AVL or NAV?
 		if (strcmp(availability, "AVL") == 0) {
 			printf("Available\n");
 		} else if (strcmp(availability, "NAV") == 0) {
@@ -717,7 +719,13 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 		}
 	}
 
-	free(buffer);
-	close(tcp_socket_fd);
-	return SUCCESS;
+	ret = SUCCESS;
+
+exit:
+	if (buffer != NULL)
+		free(buffer);
+	if (tcp_socket_fd != -1)
+		close(tcp_socket_fd);
+
+	return ret;
 }
