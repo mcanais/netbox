@@ -14,7 +14,7 @@
 #define PASSWORD_LENGTH 8
 
 
-typedef struct netbox_state {
+typedef struct netbox_state_t {
 	char uid[UID_LENGTH + 1];
 	char password[PASSWORD_LENGTH + 1];
 	unsigned short peer_server_port;

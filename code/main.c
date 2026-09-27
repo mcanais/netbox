@@ -80,10 +80,7 @@ void user_commands_loop(netbox_state_t* netbox_state) {
 			print_available_commands();
 		}
 		else if (strcmp(command, "exit") == 0) {
-			if (!netbox_state->is_logged_in)
-				break;
-			else
-				puts("You are still logged in. Please logout first.");
+			return;
 		}
 		else {
 			fprintf(stderr, "Invalid command! Do better.\n\n");

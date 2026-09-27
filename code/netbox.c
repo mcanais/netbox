@@ -69,6 +69,7 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 }
 
 
+// TODO: documentation
 static int tcp_estabilish_connection(netbox_state_t* netbox_state) {
 	int tcp_socket_fd = socket(netbox_state->tcp_server_address_info->ai_family, netbox_state->tcp_server_address_info->ai_socktype, netbox_state->tcp_server_address_info->ai_protocol);
 
@@ -87,6 +88,7 @@ static int tcp_estabilish_connection(netbox_state_t* netbox_state) {
 }
 
 
+// TODO: documentation
 static res_t tcp_send_message(int tcp_socket_fd, char* message, size_t message_length) {
 	size_t bytes_sent = 0;
 	while (bytes_sent != message_length) {
@@ -103,6 +105,7 @@ static res_t tcp_send_message(int tcp_socket_fd, char* message, size_t message_l
 }
 
 
+// TODO: documentation
 static ssize_t tcp_receive_message(int tcp_socket_fd, char** message) {
 	size_t bytes_received = 0;
 	size_t current_buffer_size = 1024;
@@ -210,6 +213,9 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 
 res_t netbox_cleanup(netbox_state_t* netbox_state) {
 	 // No early returning on error, its a best effort approach
+	if (netbox_state->is_logged_in) {
+		netbox_logout(netbox_state);
+	}
 	close(netbox_state->udp_socket_fd);
 	freeaddrinfo(netbox_state->tcp_server_address_info);
 	return SUCCESS;
@@ -446,6 +452,7 @@ static res_t check_file_size(char *filename) {
 }
 
 
+// TODO: documentation
 static res_t check_file(char *filename) {
 	if (check_filename(filename) != SUCCESS ||
 		check_file_permissions(filename) != SUCCESS ||
@@ -560,6 +567,7 @@ res_t netbox_file_remove(netbox_state_t *netbox_state, char *filename) {
 }
 
 
+// TODO: documentation
 static res_t parse_filenames(char *filenames, char *filenames_list[], int max_filename_count) {
 	if (max_filename_count == 0)
 		return failure("Hell nah broo!\n");
@@ -677,7 +685,6 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 	}
 	else if (strcmp(status, "NOK\n") == 0) {
 		printf("No peer is available for the specified resource.\n\tfilename: %s\n", filename);
-
 		ret = SUCCESS;
 		goto exit;
 	}
@@ -696,10 +703,11 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 	while (true) {
 		char uid[7];
 		size_t file_size;
-		char label[21];
-		char publication_time[16];
-		char availability[4];
+		char label[MAX_FILE_LABEL_LENGTH + 1];
+		char publication_time[MAX_PUBLICATION_TIME_LENGTH + 1];
+		char availability[AVAILABILITY_LENGTH + 1];
 		int bytes_read;
+		bool is_available;
 
 		//FIXME: se a resposta for uma string de 50 'a' de seguida, todas as strings vão ser a e tu vais achar que está tudo bem. %15s %3s não obriga a que exist um espaço entre as strings.
 		int n = sscanf(start_of_versions + total_bytes_read, 
@@ -709,27 +717,30 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 				 "%"STRINGFY(MAX_PUBLICATION_TIME_LENGTH)"s "
 				 "%"STRINGFY(AVAILABILITY_LENGTH)"s%n",
 				 uid, &file_size, label, publication_time, availability, &bytes_read);
+
 		total_bytes_read += bytes_read;
 
 		// FIXME: check uid?
 		// FIXME: check file size?
+		// Estou a assumir que o servidor manda mesnagens bem formatadas
 
 		if (n == EOF) {
 			break;
-		}
-		else if (n < 5) {
+		} else if (n < 5) {
 			failure("Failed to read version information.\n");
 			goto exit;
 		}
 
-		printf("User: %s, File size: %zu, Label: %s, Publication Time: %s, ", uid, file_size, label, publication_time);
-
-		// FIXME: what if it isn't AVL or NAV?
 		if (strcmp(availability, "AVL") == 0) {
-			printf("Available\n");
+			is_available = true;
 		} else if (strcmp(availability, "NAV") == 0) {
-			printf("Not available\n");
+			is_available = false;
+		} else {
+			failure("Invalid availability status\n");
+			goto exit;
 		}
+
+		printf("User: %s, File size: %zu, Label: %s, Publication Time: %s, %s\n", uid, file_size, label, publication_time, is_available ? "Available" : "Not available");
 	}
 
 	ret = SUCCESS;
