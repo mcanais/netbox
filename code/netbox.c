@@ -270,9 +270,6 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	else if (strcmp(status, "NOK") == 0) {
 		return failure("Incorrect login attempt.\n");
 	}
-	else if (strcmp(status, "ERR") == 0) {
-		return failure("The server received a malformed message and didn't like it.\n");
-	}
 	else {
 		return failure("Unkown status code from the server.\n");
 	}
@@ -311,9 +308,6 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 	else if (strcmp(status, "WRP") == 0) {
 		return failure("Wrong password.\n");
 	}
-	else if (strcmp(status, "ERR") == 0) {
-		return failure("The server received a malformed message and didn't like it.\n");
-	}
 	else {
 		return failure("Unkown status code from the server.\n");
 	}
@@ -350,9 +344,6 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 	}
 	else if (strcmp(status, "WRP") == 0) {
 		return failure("Wrong password.\n");
-	}
-	else if (strcmp(status, "ERR") == 0) {
-		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
 		return failure("Unknown status code from the server.\n");
@@ -507,9 +498,6 @@ res_t netbox_file_publish(netbox_state_t *netbox_state, char *filename, char *la
 	else if (strcmp(status, "WRP") == 0) {
 		return failure("Wrong password.\n");
 	}
-	else if (strcmp(status, "ERR") == 0) {
-		return failure("The server received a malformed message and didn't like it.\n");
-	}
 	else {
 		return failure("Unkown status code from the server.\n");
 	}
@@ -555,9 +543,6 @@ res_t netbox_file_remove(netbox_state_t *netbox_state, char *filename) {
 	}
 	else if (strcmp(status, "WRP") == 0) {
 		return failure("Wrong password.\n");
-	}
-	else if (strcmp(status, "ERR") == 0) {
-		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
 		return failure("Unkown status code from the server.\n");
@@ -611,9 +596,6 @@ res_t netbox_files_list(netbox_state_t *netbox_state) {
 	else if (strcmp(status, "NLG") == 0) {
 		netbox_state->is_logged_in = false; // Make sure the client is consistent with the server
 		return failure("User not logged in.\n");
-	}
-	else if (strcmp(status, "ERR") == 0) {
-		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
 		return failure("Unkown status code from the server.\n");
@@ -686,10 +668,6 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 	else if (strcmp(status, "NOK\n") == 0) {
 		printf("No peer is available for the specified resource.\n\tfilename: %s\n", filename);
 		ret = SUCCESS;
-		goto exit;
-	}
-	else if (strcmp(status, "ERR") == 0) {
-		failure("The server received a malformed message and didn't like it.\n");
 		goto exit;
 	}
 	else {
