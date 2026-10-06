@@ -6,7 +6,7 @@
 
 #include "result.h"
 
-#define DEFAULT_DIRECTORY_SERVER_ADDRESS "193.136.138.142"
+#define DEFAULT_DIRECTORY_SERVER_ADDRESS "tejo.tecnico.ulisboa.pt"
 #define DEFAULT_DIRECTORY_SERVER_PORT 59000
 
 #define OP_WORD_LENGTH 3
