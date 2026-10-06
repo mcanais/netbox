@@ -72,6 +72,10 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 		return failure("Invalid op word from the server.\n");
 
 	if (strcmp(op_word, expected_op_word) != 0) {
+		if (strcmp(op_word, "ERR") == 0) {
+			return failure("The server received a non existing op word and didn't like it.\n");
+		}
+
 		return failure("Invalid op word from the server. Expected: %s, got: %s\n", expected_op_word, op_word);
 	}
 
