@@ -39,6 +39,19 @@
 const struct timeval udp_timeout = { .tv_sec = 5, .tv_usec = 0 };
 
 
+/**
+ * Sends a UDP message to the Directory Server and validates that
+ * the response has the expected operation word.
+ * Returns the status code of the message sent by the Direcoty Server.
+ *
+ * @param netbox_state      Pointer to the netbox state to be initialized.
+ * @param message           Buffer containing the message to send to the Directory Server.
+ * @param message_length    Size of the message in bytes.
+ * @param expected_op_word  Expected operation word of the response sent by the Directory Server.
+ * @param[out] status       Pointer to the buffer that will be filled with the status code sent by the Directory Server.
+ *
+ * @return Whether the operation was successful or not.
+ */
 static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_t message_length, char *expected_op_word, char **status) {
 	static char reply[MAX_UDP_PACKET_LENGTH + 1];  // null char
 	memset(reply, 0, sizeof(reply));  // clear the buffer
@@ -69,7 +82,14 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 }
 
 
-// TODO: documentation
+/**
+ * Estabilishes a TCP connection with the Directory Server and returns the
+ * file descriptor of the socket that was opened.
+ *
+ * @param netbox_state  Pointer to the netbox state to be initialized.
+ *
+ * @return File descriptor of the TCP socket on success, -1 if it failed.
+ */
 static int tcp_estabilish_connection(netbox_state_t* netbox_state) {
 	int tcp_socket_fd = socket(netbox_state->tcp_server_address_info->ai_family, netbox_state->tcp_server_address_info->ai_socktype, netbox_state->tcp_server_address_info->ai_protocol);
 
@@ -88,7 +108,16 @@ static int tcp_estabilish_connection(netbox_state_t* netbox_state) {
 }
 
 
-// TODO: documentation
+/**
+ * Sends a TCP message in the specified socket.
+ * Either all message is sent or an error occurs.
+ *
+ * @param tcp_socket_fd   File descriptor of the TCP socket
+ * @param message         Buffer containing the message to send to the Directory Server.
+ * @param message_length  Size of the message in bytes.
+ *
+ * @return Whether the operation was successful or not.
+ */
 static res_t tcp_send_message(int tcp_socket_fd, char* message, size_t message_length) {
 	size_t bytes_sent = 0;
 	while (bytes_sent != message_length) {
@@ -105,7 +134,16 @@ static res_t tcp_send_message(int tcp_socket_fd, char* message, size_t message_l
 }
 
 
-// TODO: documentation
+/**
+ * Receives a TCP message from the specified socket.
+ * The message is dynamically allocated on a buffer.
+ * The responsability of freeing the memory used by the buffer is on the caller.
+ *
+ * @param tcp_socket_fd  File descriptor of the TCP socket
+ * @param[out] message   Pointer to the buffer that will be automatically allocated containing the message received.
+ *
+ * @return Size of the received message in bytes, or -1 if an error occurs.
+ */
 static ssize_t tcp_receive_message(int tcp_socket_fd, char** message) {
 	size_t bytes_received = 0;
 	size_t current_buffer_size = 1024;
@@ -443,7 +481,19 @@ static res_t check_file_size(char *filename) {
 }
 
 
-// TODO: documentation
+/**
+ * Checks whether a file is valid according to the Directory Server requirements.
+ *
+ * - The file name must have at most 24 characters.
+ * - All characters of the name must be either alphanumerical or one these: '-', '_', '.'. 
+ * - The file name must have a 3 letter extension (e.g. "dragon.jpg").
+ * - The file size must be at most 10 MB.
+ * - The file must be readable by the user running the program.
+ *
+ * @param filename  Name of the file to be checked.
+ *
+ * @return Success if the file is valid, failure otherwise.
+ */
 static res_t check_file(char *filename) {
 	if (check_filename(filename) != SUCCESS ||
 		check_file_permissions(filename) != SUCCESS ||
@@ -687,7 +737,6 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 		int bytes_read;
 		bool is_available;
 
-		//FIXME: se a resposta for uma string de 50 'a' de seguida, todas as strings vão ser a e tu vais achar que está tudo bem. %15s %3s não obriga a que exist um espaço entre as strings.
 		int n = sscanf(start_of_versions + total_bytes_read, 
 				"%"STRINGFY(UID_LENGTH)"s "
 				 "%zu "
@@ -697,10 +746,6 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 				 uid, &file_size, label, publication_time, availability, &bytes_read);
 
 		total_bytes_read += bytes_read;
-
-		// FIXME: check uid?
-		// FIXME: check file size?
-		// Estou a assumir que o servidor manda mesnagens bem formatadas
 
 		if (n == EOF) {
 			break;
