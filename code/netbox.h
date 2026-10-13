@@ -12,6 +12,12 @@
 #define OP_WORD_LENGTH 3
 #define UID_LENGTH 6
 #define PASSWORD_LENGTH 8
+#define MAX_FILENAME_LENGTH 24
+#define FILENAME_EXTENSION_SIZE 3
+#define MAX_FILE_LABEL_LENGTH 20
+#define MAX_FILE_SIZE 10000000
+#define MAX_PUBLICATION_TIME_LENGTH 15  // YYYYMMDD-hhmmss
+#define AVAILABILITY_LENGTH 3
 
 
 typedef struct netbox_state_t {
@@ -24,6 +30,15 @@ typedef struct netbox_state_t {
 	struct addrinfo* tcp_server_address_info;
 	bool is_logged_in;
 } netbox_state_t;
+
+
+typedef struct netbox_file_version_t {
+	size_t file_size;
+	bool is_available;
+	char publisher_uid[UID_LENGTH + 1];
+	char publication_time[MAX_PUBLICATION_TIME_LENGTH + 1];
+	char label[MAX_FILE_LABEL_LENGTH + 1];
+} netbox_file_version_t;
 
 
 /**
@@ -124,14 +139,28 @@ res_t netbox_files_list(netbox_state_t* netbox_state);
 
 
 /**
- * Displays all the versions of a file that were published to the Directory Server
+ * Returns a list of the versions of a file that were published to the Directory Server
  * by different clients.
+ * The file_versions list is dynamically allocated on a buffer.
+ * The responsability of freeing the memory used by the file_versions list is on the caller.
+ * 
+ * @param netbox_state        Pointer to the netbox state.
+ * @param filename            Name of the file.
+ * @param[out] file_versions  List of file versions returned by the Directory Server.
+ *
+ * @return The number of entries the versions list contains on success, -1 if it failed.
+ */
+int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_file_version_t** file_versions);
+
+
+/**
+ * TODO
  * 
  * @param netbox_state  Pointer to the netbox state.
  * @param filename      Name of the file.
  *
  * @return Whether the operation was successful or not.
  */
-res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename);
+res_t netbox_file_get(netbox_state_t* netbox_state, char* filename);
 
 #endif

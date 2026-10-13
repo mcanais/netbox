@@ -74,7 +74,19 @@ void user_commands_loop(netbox_state_t* netbox_state) {
 		}
 		else if (strcmp(command, "versions") == 0) {
 			char *filename = strtok(NULL, " \n");
-			netbox_file_versions(netbox_state, filename);
+			netbox_file_version_t* file_versions;
+			int number_of_versions = netbox_file_versions(netbox_state, filename, &file_versions);
+
+			if (number_of_versions == -1) {
+				continue;
+			}
+
+			for (int i = 0; i < number_of_versions; i += 1) {
+				netbox_file_version_t* file_version = &(file_versions[i]);
+				printf("User: %s, File size: %zu, Label: %s, Publication Time: %s, %s\n", file_version->publisher_uid, file_version->file_size, file_version->label, file_version->publication_time, file_version->is_available ? "Available" : "Not available");
+			}
+
+			free(file_versions);
 		}
 		else if (strcmp(command, "help") == 0) {
 			print_available_commands();

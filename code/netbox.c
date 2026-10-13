@@ -21,16 +21,8 @@
 
 
 #define MAX_UDP_PACKET_LENGTH ((1 << 16) - 20 - 8)  // IP header: 20, UDP header: 8
-
 #define MAX_16B_DIGITS 5
 #define MAX_64B_DIGITS 20
-#define MAX_FILENAME_LENGTH 24
-#define FILENAME_EXTENSION_SIZE 3
-#define MAX_FILE_LABEL_LENGTH 20
-#define MAX_FILE_SIZE 10000000
-#define MAX_PUBLICATION_TIME_LENGTH 15  // YYYYMMDD-hhmmss
-#define AVAILABILITY_LENGTH 3
-
 #define MAX_RLS_FILENAME_COUNT 50
 
 #define BASE_MESSAGE_LENGTH (OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1)
@@ -692,38 +684,39 @@ res_t netbox_files_list(netbox_state_t *netbox_state) {
 }
 
 
-res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
+int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_file_version_t** file_versions) {
 	int tcp_socket_fd = -1;
-	char* buffer = NULL;
-	res_t ret = FAILURE;
+	char* response_buffer = NULL;
+	netbox_file_version_t* versions_buffer = NULL;
 
 	if (check_filename(filename) != SUCCESS) {
-		goto exit;
+		goto exit_failure;
 	}
 
 	// =========== Send TCP request and wait for response ===========
 	tcp_socket_fd = tcp_estabilish_connection(netbox_state);
 	if (tcp_socket_fd == -1) {
-		goto exit;
+		goto exit_failure;
 	}
 
 	// The size must be a compile time constant, or the goto won't work.
-	char message[OP_WORD_LENGTH + 1 + MAX_FILENAME_LENGTH + 1 + 1];
-	sprintf(message, "VRS %s\n", filename);
-	size_t message_length = strlen(message);
+	char request_message[OP_WORD_LENGTH + 1 + MAX_FILENAME_LENGTH + 1 + 1];
+	sprintf(request_message, "VRS %s\n", filename);
+	size_t request_message_length = strlen(request_message);
 
-	if (tcp_send_message(tcp_socket_fd, message, message_length) != SUCCESS) {
-		goto exit;
+	if (tcp_send_message(tcp_socket_fd, request_message, request_message_length) != SUCCESS) {
+		goto exit_failure;
 	}
 
-	if (tcp_receive_message(tcp_socket_fd, &buffer) == -1) {
-		goto exit;
+	ssize_t response_size;
+	if ((response_size = tcp_receive_message(tcp_socket_fd, &response_buffer)) == -1) {
+		goto exit_failure;
 	}
 
-	char* op_word = strtok(buffer, " ");
+	char* op_word = strtok(response_buffer, " ");
 	if (op_word == NULL || strcmp(op_word, "RVR") != 0) {
 		failure("Invalid op word from the server.\n");
-		goto exit;
+		goto exit_failure;
 	}
 
 	// =========== Check status code ===========
@@ -731,7 +724,7 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 
 	if (status == NULL) {
 		failure("Invalid status code from the server.\n");
-		goto exit;
+		goto exit_failure;
 	}
 
 	if (strcmp(status, "OK") == 0) {
@@ -739,29 +732,43 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 	}
 	else if (strcmp(status, "NOK\n") == 0) {
 		printf("No peer is available for the specified resource.\n\tfilename: %s\n", filename);
-		ret = SUCCESS;
-		goto exit;
+		goto exit_failure;
 	}
 	else if (strcmp(status, "ERR") == 0) {
 		failure("The server received a malformed message and didn't like it.\n");
-		goto exit;
+		goto exit_failure;
 	}
 	else {
 		failure("Unknown status code from the server.\n");
-		goto exit;
+		goto exit_failure;
 	}
 
 	// =========== Read all version entries ===========
 	char* start_of_versions = status + strlen(status) + 1;
+	int number_of_spaces = 0;
+
+	char* i = start_of_versions;
+	while (i != response_buffer + response_size) {
+		if (*i == ' ') {
+			number_of_spaces += 1;
+		}
+		i += 1;
+	}
+
+	int number_of_versions = (number_of_spaces + 1) / 5;
+	versions_buffer = malloc(sizeof(netbox_file_version_t) * number_of_versions);
+
+	if (versions_buffer == NULL) {
+		failure("Failed to allocate versions buffer.\n");
+		goto exit_failure;
+	}
+
 	int total_bytes_read = 0;
-	while (true) {
-		char uid[7];
-		size_t file_size;
-		char label[MAX_FILE_LABEL_LENGTH + 1];
-		char publication_time[MAX_PUBLICATION_TIME_LENGTH + 1];
-		char availability[AVAILABILITY_LENGTH + 1];
+	for (int i = 0; i < number_of_versions; i += 1) {
+		netbox_file_version_t* file_version = &(versions_buffer[i]);
+
 		int bytes_read;
-		bool is_available;
+		char availability[AVAILABILITY_LENGTH + 1];
 
 		int n = sscanf(start_of_versions + total_bytes_read, 
 				"%"STRINGFY(UID_LENGTH)"s "
@@ -769,7 +776,7 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 				 "%"STRINGFY(MAX_FILE_LABEL_LENGTH)"s "
 				 "%"STRINGFY(MAX_PUBLICATION_TIME_LENGTH)"s "
 				 "%"STRINGFY(AVAILABILITY_LENGTH)"s%n",
-				 uid, &file_size, label, publication_time, availability, &bytes_read);
+				 file_version->publisher_uid, &(file_version->file_size), file_version->label, file_version->publication_time, availability, &bytes_read);
 
 		total_bytes_read += bytes_read;
 
@@ -777,28 +784,33 @@ res_t netbox_file_versions(netbox_state_t* netbox_state, char* filename) {
 			break;
 		} else if (n < 5) {
 			failure("Failed to read version information.\n");
-			goto exit;
+			goto exit_failure;
 		}
 
 		if (strcmp(availability, "AVL") == 0) {
-			is_available = true;
+			file_version->is_available = true;
 		} else if (strcmp(availability, "NAV") == 0) {
-			is_available = false;
+			file_version->is_available = false;
 		} else {
 			failure("Invalid availability status\n");
-			goto exit;
+			goto exit_failure;
 		}
-
-		printf("User: %s, File size: %zu, Label: %s, Publication Time: %s, %s\n", uid, file_size, label, publication_time, is_available ? "Available" : "Not available");
 	}
 
-	ret = SUCCESS;
+	*file_versions = versions_buffer;
 
-exit:
-	if (buffer != NULL)
-		free(buffer);
+	free(response_buffer);
+	close(tcp_socket_fd);
+
+	return number_of_versions;
+
+exit_failure:
 	if (tcp_socket_fd != -1)
 		close(tcp_socket_fd);
+	if (response_buffer != NULL)
+		free(response_buffer);
+	if (versions_buffer != NULL)
+		free(versions_buffer);
 
-	return ret;
+	return -1;
 }
