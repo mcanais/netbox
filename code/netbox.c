@@ -1,4 +1,3 @@
-#include <asm-generic/errno-base.h>
 #include <linux/limits.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -12,6 +11,7 @@
 #include <limits.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <fcntl.h>
 
 #include "result.h"
 #include "netbox.h"
@@ -79,24 +79,32 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 
 
 /**
- * Estabilishes a TCP connection with the Directory Server and returns the
+ * Estabilishes a TCP connection with the specified server and returns the
  * file descriptor of the socket that was opened.
  *
- * @param netbox_state  Pointer to the netbox state to be initialized.
+ * @param tcp_server_address_info  Address info of the TCP server.
  *
  * @return File descriptor of the TCP socket on success, -1 if it failed.
  */
-static int tcp_estabilish_connection(netbox_state_t* netbox_state) {
-	int tcp_socket_fd = socket(netbox_state->tcp_server_address_info->ai_family, netbox_state->tcp_server_address_info->ai_socktype, netbox_state->tcp_server_address_info->ai_protocol);
+static int tcp_estabilish_connection(struct addrinfo* tcp_server_address_info) {
+	int tcp_socket_fd = socket(tcp_server_address_info->ai_family, tcp_server_address_info->ai_socktype, tcp_server_address_info->ai_protocol);
 
 	if (tcp_socket_fd == -1) {
 		fprintf(stderr, "Failed to create TCP socket.\n");
 		return -1;
 	}
 
-	if (connect(tcp_socket_fd, netbox_state->tcp_server_address_info->ai_addr, netbox_state->tcp_server_address_info->ai_addrlen) != 0) {
+	if (connect(tcp_socket_fd, tcp_server_address_info->ai_addr, tcp_server_address_info->ai_addrlen) != 0) {
 		close(tcp_socket_fd);
 		fprintf(stderr, "Failed to estabilish TCP connection to the server.\n");
+		return -1;
+	}
+
+	// Set socket timeout to 5 seconds
+	struct timeval timeout = { .tv_sec = 5, .tv_usec = 0 };
+	if (setsockopt(tcp_socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0) {
+		close(tcp_socket_fd);
+		fprintf(stderr, "Failed to set TCP socket timeout.\n");
 		return -1;
 	}
 
@@ -190,6 +198,137 @@ static ssize_t tcp_receive_message(int tcp_socket_fd, char** message) {
 }
 
 
+static res_t check_uid(char* uid) {
+	if (uid == NULL) {
+		return failure("UID cannot be NULL.\n");
+	}
+
+	if (strnlen(uid, UID_LENGTH + 1) != UID_LENGTH) {
+		return failure("UID must be exactly %d digits.\n", UID_LENGTH);
+	}
+
+	char* i = uid;
+	while (*i != '\0') {
+		if (!isdigit(*i++)) {
+			return failure("UID must only contain digits.\n");
+		}
+	}
+
+	return SUCCESS;
+}
+
+
+static res_t check_filename(char *filename) {
+	if (filename == NULL) {
+		return failure("Filename cannot be NULL\n");
+	}
+
+	size_t filename_length = strnlen(filename, MAX_FILENAME_LENGTH + 1);
+	if (filename_length == MAX_FILENAME_LENGTH + 1)
+		return failure("Filename is too long.\nThe limit is %d characters.\n", MAX_FILENAME_LENGTH);
+
+	unsigned int i;  // filename_length is unsigned
+	for (i = 0; i < filename_length; i++) {
+		if (filename[i] == '.')
+			break;
+
+		if (!isalnum(filename[i]) && filename[i] != '-' && filename[i] != '_')
+			return failure(
+				"Invalid character in filename base.\n\tfilename %s\n\tchar: '%c'\n"
+				"Only letters, digits, - and _ are allowed.\n", filename, filename[i]
+			);
+	}
+
+	if (i == filename_length)
+		return failure("Filename doesn't have extension.\n\tfilename: %s\n", filename);
+
+	if (filename_length - (i + 1) != FILENAME_EXTENSION_SIZE)
+		return failure("File must be exactly "STRINGFY(FILENAME_EXTENSION_SIZE)" characters long, like in the good old MS-DOS days.\n\tfilename: %s\n", filename);
+
+	i++;  // i was in the dot char, the extension comes after the dot
+	for (; i < filename_length; i++)
+		if (!isalnum(filename[i]))
+			return failure(
+				"Invalid character in file extension.\n\tfilename %s\n\tchar: '%c'\n"
+				"Only letters and digits are allowed.\n", filename, filename[i]
+			);
+
+	return SUCCESS;
+}
+
+
+static res_t check_file_permissions(char *filename) {
+	int ret;
+
+	// existence
+	errno = 0;
+	ret = access(filename, F_OK);
+	if (ret != 0) {
+		if (errno != ENOENT)  // it will set the errno to this if the file doesn't exist
+			return failure("Couldn't check the file existence.\n\tfile: %s\n", filename);
+		else
+			return failure("File doesn't exist.\n\tfile: %s\n", filename);
+	}
+
+	// permissions
+	errno = 0;
+	ret = access(filename, R_OK);
+	if (ret != 0) {
+		if (errno != EACCES)  // it will set the errno to this if the file doesn't have the permission
+			return failure("Couldn't check the file permissions.\n\tfile: %s\n", filename);
+		else
+			return failure("This user doesn't have read permission for the file.\n\tfile: %s\n", filename);
+	}
+
+	return SUCCESS;
+}
+
+
+static off_t get_file_size(char *filename) {
+	struct stat file_status;
+	if (stat(filename, &file_status) < 0) {
+		failure("Couldn't get the file size.\n");
+		return -1;
+	}
+
+	return file_status.st_size;
+}
+
+
+static res_t check_file_size(char *filename) {
+	off_t file_size = get_file_size(filename);
+	if (file_size == -1)
+		return FAILURE;
+
+	if (file_size > MAX_FILE_SIZE)
+		return failure("Maximum file size exceeded.\n\tfile: %s\n", filename);
+
+	return SUCCESS;
+}
+
+
+/**
+ * Checks whether a file is valid according to the Directory Server requirements.
+ *
+ * - The file name must have at most 24 characters.
+ * - All characters of the name must be either alphanumerical or one these: '-', '_', '.'. 
+ * - The file name must have a 3 letter extension (e.g. "dragon.jpg").
+ * - The file size must be at most 10 MB.
+ * - The file must be readable by the user running the program.
+ *
+ * @param filename  Name of the file to be checked.
+ *
+ * @return Success if the file is valid, failure otherwise.
+ */
+static res_t check_file(char *filename) {
+	if (check_filename(filename) != SUCCESS ||
+		check_file_permissions(filename) != SUCCESS ||
+		check_file_size(filename) != SUCCESS)
+		return FAILURE;
+	return SUCCESS;
+}
+
+
 res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* directory_server_address, int directory_server_port) {
 	netbox_state->directory_server_address = directory_server_address == NULL ? DEFAULT_DIRECTORY_SERVER_ADDRESS : directory_server_address;
 	netbox_state->directory_server_port = directory_server_port == 0 ? DEFAULT_DIRECTORY_SERVER_PORT : directory_server_port;
@@ -265,13 +404,9 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 	if (uid == NULL || password == NULL)
 		return failure("Login usage: login UID password\n");
 
-	// UID
-	if (strnlen(uid, UID_LENGTH + 1) != UID_LENGTH)
-		return failure("UID must be exactly %d digits.\n", UID_LENGTH);
-	p = uid;
-	while (*p != '\0')
-		if (!isdigit(*p++))
-			return failure("UID must only contain digits.\n");
+	if (check_uid(uid) != SUCCESS) {
+		return FAILURE;
+	}
 
 	// password
 	if (strnlen(password, PASSWORD_LENGTH + 1) != PASSWORD_LENGTH)
@@ -393,117 +528,6 @@ res_t netbox_unregister(netbox_state_t* netbox_state) {
 	}
 
 	netbox_state->is_logged_in = false;
-	return SUCCESS;
-}
-
-
-static off_t get_file_size(char *filename) {
-	struct stat file_status;
-	if (stat(filename, &file_status) < 0) {
-		failure("Couldn't get the file size.\n");
-		return -1;
-	}
-
-	return file_status.st_size;
-}
-
-
-static res_t check_filename(char *filename) {
-	if (filename == NULL) {
-		return failure("Filename cannot be NULL\n");
-	}
-
-	size_t filename_length = strnlen(filename, MAX_FILENAME_LENGTH + 1);
-	if (filename_length == MAX_FILENAME_LENGTH + 1)
-		return failure("Filename is too long.\nThe limit is %d characters.\n", MAX_FILENAME_LENGTH);
-
-	unsigned int i;  // filename_length is unsigned
-	for (i = 0; i < filename_length; i++) {
-		if (filename[i] == '.')
-			break;
-
-		if (!isalnum(filename[i]) && filename[i] != '-' && filename[i] != '_')
-			return failure(
-				"Invalid character in filename base.\n\tfilename %s\n\tchar: '%c'\n"
-				"Only letters, digits, - and _ are allowed.\n", filename, filename[i]
-			);
-	}
-
-	if (i == filename_length)
-		return failure("Filename doesn't have extension.\n\tfilename: %s\n", filename);
-
-	if (filename_length - (i + 1) != FILENAME_EXTENSION_SIZE)
-		return failure("File must be exactly "STRINGFY(FILENAME_EXTENSION_SIZE)" characters long, like in the good old MS-DOS days.\n\tfilename: %s\n", filename);
-
-	i++;  // i was in the dot char, the extension comes after the dot
-	for (; i < filename_length; i++)
-		if (!isalnum(filename[i]))
-			return failure(
-				"Invalid character in file extension.\n\tfilename %s\n\tchar: '%c'\n"
-				"Only letters and digits are allowed.\n", filename, filename[i]
-			);
-
-	return SUCCESS;
-}
-
-
-static res_t check_file_permissions(char *filename) {
-	int ret;
-
-	// existence
-	errno = 0;
-	ret = access(filename, F_OK);
-	if (ret != 0) {
-		if (errno != ENOENT)  // it will set the errno to this if the file doesn't exist
-			return failure("Couldn't check the file existence.\n\tfile: %s\n", filename);
-		else
-			return failure("File doesn't exist.\n\tfile: %s\n", filename);
-	}
-
-	// permissions
-	errno = 0;
-	ret = access(filename, R_OK);
-	if (ret != 0) {
-		if (errno != EACCES)  // it will set the errno to this if the file doesn't have the permission
-			return failure("Couldn't check the file permissions.\n\tfile: %s\n", filename);
-		else
-			return failure("This user doesn't have read permission for the file.\n\tfile: %s\n", filename);
-	}
-
-	return SUCCESS;
-}
-
-
-static res_t check_file_size(char *filename) {
-	off_t file_size = get_file_size(filename);
-	if (file_size == -1)
-		return FAILURE;
-
-	if (file_size > MAX_FILE_SIZE)
-		return failure("Maximum file size exceeded.\n\tfile: %s\n", filename);
-
-	return SUCCESS;
-}
-
-
-/**
- * Checks whether a file is valid according to the Directory Server requirements.
- *
- * - The file name must have at most 24 characters.
- * - All characters of the name must be either alphanumerical or one these: '-', '_', '.'. 
- * - The file name must have a 3 letter extension (e.g. "dragon.jpg").
- * - The file size must be at most 10 MB.
- * - The file must be readable by the user running the program.
- *
- * @param filename  Name of the file to be checked.
- *
- * @return Success if the file is valid, failure otherwise.
- */
-static res_t check_file(char *filename) {
-	if (check_filename(filename) != SUCCESS ||
-		check_file_permissions(filename) != SUCCESS ||
-		check_file_size(filename) != SUCCESS)
-		return FAILURE;
 	return SUCCESS;
 }
 
@@ -690,33 +714,32 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	netbox_file_version_t* versions_buffer = NULL;
 
 	if (check_filename(filename) != SUCCESS) {
-		goto exit_failure;
+		goto fail;
 	}
 
 	// =========== Send TCP request and wait for response ===========
-	tcp_socket_fd = tcp_estabilish_connection(netbox_state);
+	tcp_socket_fd = tcp_estabilish_connection(netbox_state->tcp_server_address_info);
 	if (tcp_socket_fd == -1) {
-		goto exit_failure;
+		goto fail;
 	}
 
-	// The size must be a compile time constant, or the goto won't work.
 	char request_message[OP_WORD_LENGTH + 1 + MAX_FILENAME_LENGTH + 1 + 1];
 	sprintf(request_message, "VRS %s\n", filename);
 	size_t request_message_length = strlen(request_message);
 
 	if (tcp_send_message(tcp_socket_fd, request_message, request_message_length) != SUCCESS) {
-		goto exit_failure;
+		goto fail;
 	}
 
 	ssize_t response_size;
 	if ((response_size = tcp_receive_message(tcp_socket_fd, &response_buffer)) == -1) {
-		goto exit_failure;
+		goto fail;
 	}
 
 	char* op_word = strtok(response_buffer, " ");
 	if (op_word == NULL || strcmp(op_word, "RVR") != 0) {
 		failure("Invalid op word from the server.\n");
-		goto exit_failure;
+		goto fail;
 	}
 
 	// =========== Check status code ===========
@@ -724,7 +747,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 
 	if (status == NULL) {
 		failure("Invalid status code from the server.\n");
-		goto exit_failure;
+		goto fail;
 	}
 
 	if (strcmp(status, "OK") == 0) {
@@ -732,15 +755,15 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	}
 	else if (strcmp(status, "NOK\n") == 0) {
 		printf("No peer is available for the specified resource.\n\tfilename: %s\n", filename);
-		goto exit_failure;
+		goto fail;
 	}
-	else if (strcmp(status, "ERR") == 0) {
+	else if (strcmp(status, "ERR\n") == 0) {
 		failure("The server received a malformed message and didn't like it.\n");
-		goto exit_failure;
+		goto fail;
 	}
 	else {
 		failure("Unknown status code from the server.\n");
-		goto exit_failure;
+		goto fail;
 	}
 
 	// =========== Read all version entries ===========
@@ -760,7 +783,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 
 	if (versions_buffer == NULL) {
 		failure("Failed to allocate versions buffer.\n");
-		goto exit_failure;
+		goto fail;
 	}
 
 	int total_bytes_read = 0;
@@ -784,7 +807,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 			break;
 		} else if (n < 5) {
 			failure("Failed to read version information.\n");
-			goto exit_failure;
+			goto fail;
 		}
 
 		if (strcmp(availability, "AVL") == 0) {
@@ -792,8 +815,8 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 		} else if (strcmp(availability, "NAV") == 0) {
 			file_version->is_available = false;
 		} else {
-			failure("Invalid availability status\n");
-			goto exit_failure;
+			failure("Invalid availability status.\n");
+			goto fail;
 		}
 	}
 
@@ -804,7 +827,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 
 	return number_of_versions;
 
-exit_failure:
+fail:
 	if (tcp_socket_fd != -1)
 		close(tcp_socket_fd);
 	if (response_buffer != NULL)
@@ -813,4 +836,243 @@ exit_failure:
 		free(versions_buffer);
 
 	return -1;
+}
+
+
+res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename, char* uid, netbox_file_location_t* location) {
+	if (check_filename(filename) != SUCCESS || check_uid(uid) != SUCCESS) {
+		return failure("Where usage: where filename UID\n");
+	}
+
+	size_t filename_length = strlen(filename);
+
+	size_t message_length = OP_WORD_LENGTH + 1 + filename_length + 1 + UID_LENGTH +  1;
+	char message[message_length + 1];  // null char
+	sprintf(message, "WHR %s %s\n", filename, uid);
+	
+	char *response;
+	if (send_udp_message(netbox_state, message, message_length, "RWH", &response))
+		return FAILURE;
+
+	char status[4];
+	memset(status, 0, sizeof(status));
+	int bytes_read;
+	sscanf(response, "%3s%n", status, &bytes_read);
+
+	if (strcmp(status, "OK") == 0) {
+		// All good
+	}
+	else if (strcmp(status, "NOK") == 0) {
+		return failure("The user %s is not actively publishing the file %s.\n", uid, filename);
+	}
+	else if (strcmp(status, "ERR") == 0) {
+		return failure("The server received a malformed message and didn't like it.\n");
+	}
+	else {
+		return failure("Unknown status code from the server.\n");
+	}
+
+	if (sscanf(response + bytes_read + 1, "%15s %d", location->peer_address, &(location->peer_port)) != 2) {
+		return failure("Could not parse file location properly.\n");
+	}
+
+	return SUCCESS;
+}
+
+
+static netbox_file_version_t* select_best_file_version(netbox_file_version_t* file_versions, int number_of_versions) {
+	for (int i = 0; i < number_of_versions; i += 1) {
+		netbox_file_version_t* file_version = &(file_versions[i]);
+
+		if (file_version->is_available == true) {
+			return file_version;
+		}
+	}
+
+	return NULL;
+}
+
+
+res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output_file_path) {
+	netbox_file_version_t* file_versions = NULL;
+	struct addrinfo* peer_server_address_info = NULL;
+	int tcp_socket_fd = -1;
+	int output_fd = -1;
+
+	if (check_filename(filename) != SUCCESS) {
+		return failure("Get usage: get filename\n");
+	}
+
+	// =========== Find the file version to download ===========
+	int number_of_versions = netbox_file_versions(netbox_state, filename, &file_versions);
+
+	if (number_of_versions == -1) {
+		return FAILURE;
+	}
+
+	netbox_file_version_t* best_file_version = select_best_file_version(file_versions, number_of_versions);
+
+	if (best_file_version == NULL) {
+		failure("Could not select an appropriate file version\n");
+		goto fail;
+	}
+
+	netbox_file_location_t file_location;
+
+	if (netbox_locate_file_from_user(netbox_state, filename, best_file_version->publisher_uid, &file_location) != SUCCESS) {
+		goto fail;
+	}
+
+	// =========== Estabilish connection with the peer who is serving the file  ===========
+	struct addrinfo hints = {0};
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	char peer_server_port_string[6];
+	snprintf(peer_server_port_string, sizeof(peer_server_port_string), "%d", file_location.peer_port);
+
+	if (getaddrinfo(file_location.peer_address, peer_server_port_string, &hints, &peer_server_address_info) != 0) {
+		failure("Failed to get address info for peer %s.\n", file_location.peer_address);
+		goto fail;
+	}
+
+	tcp_socket_fd = tcp_estabilish_connection(peer_server_address_info);
+
+	if (tcp_socket_fd == -1) {
+		goto fail;
+	}
+
+	// =========== Send GET request  ===========
+	char request_message[OP_WORD_LENGTH + 1 + MAX_FILENAME_LENGTH + 1 + 1];
+	sprintf(request_message, "GET %s\n", filename);
+	size_t request_message_length = strlen(request_message);
+
+	if (tcp_send_message(tcp_socket_fd, request_message, request_message_length) != SUCCESS) {
+		goto fail;
+	}
+	
+	// =========== Receive response  ===========
+	// The response header is the following: RGT status Fsize
+	// This header is at most 16 bytes because Fsize is at most 8 bytes
+	char response_header[16];
+	memset(response_header, '\0', sizeof(response_header));
+	ssize_t response_result;
+	if ((response_result = read(tcp_socket_fd, response_header, sizeof(response_header))) < 9) {
+		failure("Failed to read GET response header.\n");
+		goto fail;
+	}
+	ssize_t response_header_length = (size_t) response_result;
+
+	if (strncmp(response_header, "RGT ", 4) != 0) {
+		failure("Invalid op word from the peer.\n");
+		goto fail;
+	}
+
+	if (strncmp(response_header + 4, "OK ", 3) == 0) {
+		// All good
+	}
+	else if (strncmp(response_header + 4, "NOK", 3) == 0) {
+		printf("The file is not available in this peer.\n\tfilename: %s\n", filename);
+		goto fail;
+	}
+	else if (strncmp(response_header + 4, "ERR", 3) == 0) {
+		failure("The peer received a malformed message and didn't like it.\n");
+		goto fail;
+	}
+	else {
+		failure("Unknown status code from the peer.\n");
+		goto fail;
+	}
+
+	char* file_size_iterator = response_header + 7;
+	size_t file_size = 0;
+
+	do {
+		if (!isdigit(*file_size_iterator)) {
+			failure("File size is invalid.\n");
+			goto fail;
+		}
+
+		file_size = file_size * 10 + (*file_size_iterator - '0');
+		file_size_iterator += 1;
+
+		if (file_size_iterator >= response_header + sizeof(response_header)) {
+			failure("File size is invalid.\n");
+			goto fail;
+		}
+	} while (*file_size_iterator != ' ');
+
+	// The output file is where the file data from the GET response is going to be written to
+	output_fd = open(output_file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+	if (output_fd == -1) {
+		failure("Failed to create output file.\n");
+		goto fail;
+	}
+
+	size_t total_bytes_read = 0;
+	size_t remaining_bytes = response_header_length - (file_size_iterator - response_header + 1);
+
+	// Write the remaining bytes of the response header to the output file.
+	// These are the starting bytes of the file data
+	if (remaining_bytes > 0) {
+		size_t max = file_size < remaining_bytes ? file_size : remaining_bytes;
+		ssize_t write_result = write(output_fd, file_size_iterator + 1, max);
+
+		if (write_result != (ssize_t)max) {
+			failure("Failed to write to output file.\n");
+			goto fail;
+		}
+
+		total_bytes_read += (size_t) write_result;
+	}
+
+	char buffer[1024];
+	while (total_bytes_read < file_size) {
+		response_result = read(tcp_socket_fd, buffer, sizeof(buffer));
+
+		if (response_result < 0) {
+			failure("Failed to read file data.\n");
+			goto fail;
+		}
+
+		if (response_result == 0) {
+			failure("Peer did not send the full file data.\n");
+			goto fail;
+		}
+
+		size_t bytes_read = (size_t)response_result;
+		size_t max = bytes_read < file_size - total_bytes_read ? bytes_read : file_size - total_bytes_read;
+
+		ssize_t write_result = write(output_fd, buffer, max);
+
+		if (write_result != (ssize_t)max) {
+			failure("Failed to write to output file.\n");
+			goto fail;
+		}
+
+		total_bytes_read += bytes_read;
+	}
+
+	printf("Successfully downloaded file %s (%zu bytes) to %s.\n", filename, file_size, output_file_path);
+
+	close(tcp_socket_fd);
+	freeaddrinfo(peer_server_address_info);
+	free(file_versions);
+	close(output_fd);
+
+	return SUCCESS;
+
+fail:
+	if (tcp_socket_fd != -1)
+		close(tcp_socket_fd);
+	if (peer_server_address_info != NULL)
+		freeaddrinfo(peer_server_address_info);
+	if (file_versions != NULL)
+		free(file_versions);
+	if (output_fd != -1) {
+		close(output_fd);
+	}
+
+	return FAILURE;
 }

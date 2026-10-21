@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <sys/stat.h>
 
 #include "result.h"
 #include "netbox.h"
@@ -27,6 +28,7 @@ void print_available_commands() {
 		"\tremove filename\n"
 		"\tlist\n"
 		"\tversions filename\n"
+		"\tget filename\n"
 		"\thelp\n"
 		"\texit\n"
 	);
@@ -87,6 +89,13 @@ void user_commands_loop(netbox_state_t* netbox_state) {
 			}
 
 			free(file_versions);
+		}
+		else if (strcmp(command, "get") == 0) {
+			char* filename = strtok(NULL, " \n");
+			char output_file_path[256];
+			mkdir("downloaded_files", 0755);
+			snprintf(output_file_path, sizeof(output_file_path), "downloaded_files/%s", filename);
+			netbox_file_get(netbox_state, filename, output_file_path);
 		}
 		else if (strcmp(command, "help") == 0) {
 			print_available_commands();

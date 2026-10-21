@@ -41,6 +41,12 @@ typedef struct netbox_file_version_t {
 } netbox_file_version_t;
 
 
+typedef struct netbox_file_location_t {
+	char peer_address[16]; // It is an IPv4 address
+	int peer_port;
+} netbox_file_location_t;
+
+
 /**
  * Sets ups the netbox client, which becomes ready to communicate with the Directory Server.
  *
@@ -73,7 +79,7 @@ res_t netbox_cleanup(netbox_state_t* netbox_state);
  * and then becomes logged in.
  *
  * @param netbox_state  Pointer to the netbox state.
- * @param uid           Username to use in the login.
+ * @param uid           User ID to use in the login.
  * @param password      Password to use in the login.
  *
  * @return Whether the operation was successful or not.
@@ -154,13 +160,29 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 
 
 /**
- * TODO
+ * Returns the location (IP address and port) of the file published by the specified user.
  * 
- * @param netbox_state  Pointer to the netbox state.
- * @param filename      Name of the file.
+ * @param netbox_state   Pointer to the netbox state.
+ * @param uid            User ID we want to find the location of.
+ * @param filename       Name of the file.
+ * @param[out] location  Location (IP address and port) of the file published by the specified user.
  *
  * @return Whether the operation was successful or not.
  */
-res_t netbox_file_get(netbox_state_t* netbox_state, char* filename);
+res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename, char* uid, netbox_file_location_t* location);
+
+
+/**
+ * Downloads the specified file from a peer.
+ * The peer to download from is automatically chosen.
+ * The downloaded file is placed in the specified output file path.
+ * 
+ * @param netbox_state      Pointer to the netbox state.
+ * @param filename          Name of the file to be downloaded.
+ * @param output_file_path  Path where the downloaded file will be placed in.
+ *
+ * @return Whether the operation was successful or not.
+ */
+res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output_file_path);
 
 #endif
