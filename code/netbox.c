@@ -16,9 +16,9 @@
 #include "result.h"
 #include "netbox.h"
 
+
 #define _STRINGFY(x) #x
 #define STRINGFY(x) _STRINGFY(x)
-
 
 #define MAX_UDP_PACKET_LENGTH ((1 << 16) - 20 - 8)  // IP header: 20, UDP header: 8
 #define MAX_16B_DIGITS 5
@@ -28,7 +28,38 @@
 #define BASE_MESSAGE_LENGTH (OP_WORD_LENGTH + 1 + UID_LENGTH + 1 + PASSWORD_LENGTH + 1)
 
 
-const struct timeval udp_timeout = { .tv_sec = 5, .tv_usec = 0 };
+/**
+ * Estabilishes a network connection with the specified server and returns the
+ * file descriptor of the socket that was opened.
+ *
+ * @param tcp_server_address_info  Address info of the server.
+ *
+ * @return File descriptor of the socket on success, -1 if it failed.
+ */
+static int estabilish_network_connection(struct addrinfo* server_address_info) {
+	int socket_fd = socket(server_address_info->ai_family, server_address_info->ai_socktype, server_address_info->ai_protocol);
+
+	if (socket_fd == -1) {
+		fprintf(stderr, "Failed to create socket.\n");
+		return -1;
+	}
+
+	if (connect(socket_fd, server_address_info->ai_addr, server_address_info->ai_addrlen) != 0) {
+		close(socket_fd);
+		fprintf(stderr, "Failed to estabilish connection.\n");
+		return -1;
+	}
+
+	// Set socket timeout to 5 seconds
+	struct timeval timeout = { .tv_sec = 5, .tv_usec = 0 };
+	if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0) {
+		close(socket_fd);
+		fprintf(stderr, "Failed to set socket timeout.\n");
+		return -1;
+	}
+
+	return socket_fd;
+}
 
 
 /**
@@ -49,11 +80,11 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 	memset(reply, 0, sizeof(reply));  // clear the buffer
 
 	// send message
-	if (send(netbox_state->udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
+	if (send(netbox_state->directory_server_udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
 		return failure("Couldn't communicate with server.\n");
 
 	// read reply
-	int bytes_read = recv(netbox_state->udp_socket_fd, reply, MAX_UDP_PACKET_LENGTH, 0);
+	int bytes_read = recv(netbox_state->directory_server_udp_socket_fd, reply, MAX_UDP_PACKET_LENGTH, 0);
 	if (bytes_read < 0)
 		return failure("Couldn't receive confirmation from the server.\n");
  
@@ -75,40 +106,6 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 		return failure("Invalid status code from the server.\n");
 
 	return SUCCESS;
-}
-
-
-/**
- * Estabilishes a TCP connection with the specified server and returns the
- * file descriptor of the socket that was opened.
- *
- * @param tcp_server_address_info  Address info of the TCP server.
- *
- * @return File descriptor of the TCP socket on success, -1 if it failed.
- */
-static int tcp_estabilish_connection(struct addrinfo* tcp_server_address_info) {
-	int tcp_socket_fd = socket(tcp_server_address_info->ai_family, tcp_server_address_info->ai_socktype, tcp_server_address_info->ai_protocol);
-
-	if (tcp_socket_fd == -1) {
-		fprintf(stderr, "Failed to create TCP socket.\n");
-		return -1;
-	}
-
-	if (connect(tcp_socket_fd, tcp_server_address_info->ai_addr, tcp_server_address_info->ai_addrlen) != 0) {
-		close(tcp_socket_fd);
-		fprintf(stderr, "Failed to estabilish TCP connection to the server.\n");
-		return -1;
-	}
-
-	// Set socket timeout to 5 seconds
-	struct timeval timeout = { .tv_sec = 5, .tv_usec = 0 };
-	if (setsockopt(tcp_socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0) {
-		close(tcp_socket_fd);
-		fprintf(stderr, "Failed to set TCP socket timeout.\n");
-		return -1;
-	}
-
-	return tcp_socket_fd;
 }
 
 
@@ -336,49 +333,37 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 
 	// Create the UDP socket and connect it to the Directory Server
 	struct addrinfo hints = {0};
-	struct addrinfo* udp_server_address_info;
+	struct addrinfo* directory_server_udp_address_info;
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_DGRAM;
 
 	char directory_server_port_string[20];
 	snprintf(directory_server_port_string, sizeof(directory_server_port_string), "%hu", netbox_state->directory_server_port);
 
-	if (getaddrinfo(netbox_state->directory_server_address, directory_server_port_string, &hints, &udp_server_address_info) != 0)
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+	if (getaddrinfo(netbox_state->directory_server_address, directory_server_port_string, &hints, &directory_server_udp_address_info) != 0) {
+		return failure("Failed to get address info of the Directory Server %s.\n", netbox_state->directory_server_address);
+	}
 
-	int udp_socket_fd = socket(udp_server_address_info->ai_family, udp_server_address_info->ai_socktype, udp_server_address_info->ai_protocol);
+	int udp_socket_fd = estabilish_network_connection(directory_server_udp_address_info);
+
+	freeaddrinfo(directory_server_udp_address_info);
+
 	if (udp_socket_fd == -1) {
-		freeaddrinfo(udp_server_address_info);
-		return failure("Failed to create UDP socket.\n");
+		return failure("Failed to estabilish UDP connection with the Directory Server %s.\n", netbox_state->directory_server_address);
 	}
 
-	// Set UDP socket timeout to 5 seconds
-	if (setsockopt(udp_socket_fd, SOL_SOCKET, SO_RCVTIMEO, &udp_timeout, sizeof(udp_timeout)) != 0) {
-		freeaddrinfo(udp_server_address_info);
-		close(udp_socket_fd);
-		return failure("Failed to configure UDP socket options.\n");
-	}
-
-	if (connect(udp_socket_fd, udp_server_address_info->ai_addr, udp_server_address_info->ai_addrlen) < 0) {
-		freeaddrinfo(udp_server_address_info);
-		close(udp_socket_fd);
-		return failure("Failed to estabilish UDP connection with the server.\n");
-	}
-
-	freeaddrinfo(udp_server_address_info);
-
-	struct addrinfo* tcp_server_address_info;
+	struct addrinfo* directory_server_tcp_address_info;
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if (getaddrinfo(netbox_state->directory_server_address, directory_server_port_string, &hints, &tcp_server_address_info) != 0) {
+	if (getaddrinfo(netbox_state->directory_server_address, directory_server_port_string, &hints, &directory_server_tcp_address_info) != 0) {
 		close(udp_socket_fd);
-		return failure("Failed to get address info for %s.\n", netbox_state->directory_server_address);
+		return failure("Failed to get address info of the Directory Server %s.\n", netbox_state->directory_server_address);
 	}
 
 	netbox_state->is_logged_in = false;
-	netbox_state->udp_socket_fd = udp_socket_fd;
-	netbox_state->tcp_server_address_info = tcp_server_address_info;
+	netbox_state->directory_server_udp_socket_fd = udp_socket_fd;
+	netbox_state->directory_server_tcp_address_info = directory_server_tcp_address_info;
 
 	return SUCCESS;
 }
@@ -389,8 +374,8 @@ res_t netbox_cleanup(netbox_state_t* netbox_state) {
 	if (netbox_state->is_logged_in) {
 		netbox_logout(netbox_state);
 	}
-	close(netbox_state->udp_socket_fd);
-	freeaddrinfo(netbox_state->tcp_server_address_info);
+	close(netbox_state->directory_server_udp_socket_fd);
+	freeaddrinfo(netbox_state->directory_server_tcp_address_info);
 	return SUCCESS;
 }
 
@@ -673,7 +658,7 @@ res_t netbox_files_list(netbox_state_t *netbox_state) {
 
 	// see status code
 	if (strcmp(status, "OK") == 0) {
-		;//)
+		// All good
 	}
 	else if (strcmp(status, "NOK") == 0) {
 		return failure("No resources are currently known.\n");
@@ -718,7 +703,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	}
 
 	// =========== Send TCP request and wait for response ===========
-	tcp_socket_fd = tcp_estabilish_connection(netbox_state->tcp_server_address_info);
+	tcp_socket_fd = estabilish_network_connection(netbox_state->directory_server_tcp_address_info);
 	if (tcp_socket_fd == -1) {
 		goto fail;
 	}
@@ -936,9 +921,10 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 		goto fail;
 	}
 
-	tcp_socket_fd = tcp_estabilish_connection(peer_server_address_info);
+	tcp_socket_fd = estabilish_network_connection(peer_server_address_info);
 
 	if (tcp_socket_fd == -1) {
+		failure("Failed to estabilish connection with the peer %s.\n", file_location.peer_address);
 		goto fail;
 	}
 
@@ -957,8 +943,8 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 	char response_header[16];
 	memset(response_header, '\0', sizeof(response_header));
 	ssize_t response_result;
-	if ((response_result = read(tcp_socket_fd, response_header, sizeof(response_header))) < 9) {
-		failure("Failed to read GET response header.\n");
+	if ((response_result = read(tcp_socket_fd, response_header, sizeof(response_header))) < 8) {
+		failure("Failed to read GET response header. %d\n", response_result);
 		goto fail;
 	}
 	ssize_t response_header_length = (size_t) response_result;
@@ -987,6 +973,7 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 	char* file_size_iterator = response_header + 7;
 	size_t file_size = 0;
 
+	// Read the file size
 	do {
 		if (!isdigit(*file_size_iterator)) {
 			failure("File size is invalid.\n");
@@ -1027,6 +1014,7 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 		total_bytes_read += (size_t) write_result;
 	}
 
+	// Read the file data
 	char buffer[1024];
 	while (total_bytes_read < file_size) {
 		response_result = read(tcp_socket_fd, buffer, sizeof(buffer));

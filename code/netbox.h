@@ -26,8 +26,8 @@ typedef struct netbox_state_t {
 	unsigned short peer_server_port;
 	unsigned short directory_server_port;
 	char* directory_server_address; // Can be either the domain name or an IP address
-	int udp_socket_fd;
-	struct addrinfo* tcp_server_address_info;
+	int directory_server_udp_socket_fd;
+	struct addrinfo* directory_server_tcp_address_info;
 	bool is_logged_in;
 } netbox_state_t;
 
