@@ -163,8 +163,8 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
  * Returns the location (IP address and port) of the file published by the specified user.
  * 
  * @param netbox_state   Pointer to the netbox state.
- * @param uid            User ID we want to find the location of.
  * @param filename       Name of the file.
+ * @param uid            User ID we want to find the location of.
  * @param[out] location  Location (IP address and port) of the file published by the specified user.
  *
  * @return Whether the operation was successful or not.

@@ -29,14 +29,14 @@
 
 
 /**
- * Estabilishes a network connection with the specified server and returns the
+ * Establishes a network connection with the specified server and returns the
  * file descriptor of the socket that was opened.
  *
  * @param tcp_server_address_info  Address info of the server.
  *
  * @return File descriptor of the socket on success, -1 if it failed.
  */
-static int estabilish_network_connection(struct addrinfo* server_address_info) {
+static int establish_network_connection(struct addrinfo* server_address_info) {
 	int socket_fd = socket(server_address_info->ai_family, server_address_info->ai_socktype, server_address_info->ai_protocol);
 
 	if (socket_fd == -1) {
@@ -46,7 +46,7 @@ static int estabilish_network_connection(struct addrinfo* server_address_info) {
 
 	if (connect(socket_fd, server_address_info->ai_addr, server_address_info->ai_addrlen) != 0) {
 		close(socket_fd);
-		fprintf(stderr, "Failed to estabilish connection.\n");
+		fprintf(stderr, "Failed to establish connection.\n");
 		return -1;
 	}
 
@@ -65,7 +65,7 @@ static int estabilish_network_connection(struct addrinfo* server_address_info) {
 /**
  * Sends a UDP message to the Directory Server and validates that
  * the response has the expected operation word.
- * Returns the status code of the message sent by the Direcoty Server.
+ * Returns the status code of the message sent by the Directory Server.
  *
  * @param netbox_state      Pointer to the netbox state to be initialized.
  * @param message           Buffer containing the message to send to the Directory Server.
@@ -138,20 +138,21 @@ static res_t tcp_send_message(int tcp_socket_fd, char* message, size_t message_l
 /**
  * Receives a TCP message from the specified socket.
  * The message is dynamically allocated on a buffer.
- * The responsability of freeing the memory used by the buffer is on the caller.
+ * The responsibility of freeing the memory used by the buffer is on the caller.
  *
- * @param tcp_socket_fd  File descriptor of the TCP socket
- * @param[out] message   Pointer to the buffer that will be automatically allocated containing the message received.
+ * @param tcp_socket_fd     File descriptor of the TCP socket
+ * @param[out] message      Pointer to the buffer that will be automatically allocated containing the message received.
+ * @param max_message_size  Maximum size of the message buffer in bytes.
  *
  * @return Size of the received message in bytes, or -1 if an error occurs.
  */
-static ssize_t tcp_receive_message(int tcp_socket_fd, char** message) {
+static ssize_t tcp_receive_message(int tcp_socket_fd, char** message, size_t max_message_size) {
 	size_t bytes_received = 0;
 	size_t current_buffer_size = 1024;
 	char* buffer = malloc(current_buffer_size);
 
 	if (buffer == NULL) {
-		fprintf(stderr, "Failed to allocate message buffer.\n");
+		failure("Failed to allocate message buffer.\n");
 		return -1;
 	}
 
@@ -160,20 +161,21 @@ static ssize_t tcp_receive_message(int tcp_socket_fd, char** message) {
 
 		if (receive_result == -1) {
 			free(buffer);
-			fprintf(stderr, "Failed to receive TCP message.\n");
+			failure("Failed to receive TCP message.\n");
 			return -1;
 		}
 
 		if (receive_result == 0) {
 			// Readjust the message size to only be the used bytes in order to not waste memory
-			buffer = realloc(buffer, bytes_received + 1);
+			char* reallocated_buffer = realloc(buffer, bytes_received);
 
-			if (buffer == NULL) {
-				fprintf(stderr, "Failed to reallocate message buffer.\n");
+			if (reallocated_buffer == NULL) {
+				free(buffer);
+				failure("Failed to reallocate message buffer.\n");
 				return -1;
 			}
 
-			buffer[bytes_received] = '\0';
+			buffer = reallocated_buffer;
 			*message = buffer;
 			return bytes_received;
 		}
@@ -181,13 +183,21 @@ static ssize_t tcp_receive_message(int tcp_socket_fd, char** message) {
 		bytes_received += (size_t)receive_result;
 
 		if (bytes_received >= 0.9 * current_buffer_size) {
-			current_buffer_size *= 2;
-			buffer = realloc(buffer, current_buffer_size);
-
-			if (buffer == NULL) {
-				fprintf(stderr, "Failed to reallocate message buffer.\n");
+			if (current_buffer_size * 2 > max_message_size) {
+				free(buffer);
+				failure("Message buffer exceeded maximum message size.\n");
 				return -1;
 			}
+			current_buffer_size *= 2;
+			char* reallocated_buffer = realloc(buffer, current_buffer_size);
+
+			if (reallocated_buffer == NULL) {
+				free(buffer);
+				failure("Failed to reallocate message buffer.\n");
+				return -1;
+			}
+
+			buffer = reallocated_buffer;
 		}
 	}
 	
@@ -236,7 +246,9 @@ static res_t check_filename(char *filename) {
 			);
 	}
 
-	if (i == filename_length)
+	if (i == 0)
+		return failure("Filename must have a base name\n");
+	else if (i == filename_length)
 		return failure("Filename doesn't have extension.\n\tfilename: %s\n", filename);
 
 	if (filename_length - (i + 1) != FILENAME_EXTENSION_SIZE)
@@ -344,12 +356,12 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 		return failure("Failed to get address info of the Directory Server %s.\n", netbox_state->directory_server_address);
 	}
 
-	int udp_socket_fd = estabilish_network_connection(directory_server_udp_address_info);
+	int udp_socket_fd = establish_network_connection(directory_server_udp_address_info);
 
 	freeaddrinfo(directory_server_udp_address_info);
 
 	if (udp_socket_fd == -1) {
-		return failure("Failed to estabilish UDP connection with the Directory Server %s.\n", netbox_state->directory_server_address);
+		return failure("Failed to establish UDP connection with the Directory Server %s.\n", netbox_state->directory_server_address);
 	}
 
 	struct addrinfo* directory_server_tcp_address_info;
@@ -428,7 +440,7 @@ res_t netbox_login(netbox_state_t* netbox_state, char *uid, char *password) {
 		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
-		return failure("Unkown status code from the server.\n");
+		return failure("Unknown status code from the server.\n");
 	}
 
 	// yeih :)
@@ -469,7 +481,7 @@ res_t netbox_logout(netbox_state_t* netbox_state) {
 		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
-		return failure("Unkown status code from the server.\n");
+		return failure("Unknown status code from the server.\n");
 	}
 
 	netbox_state->is_logged_in = false;
@@ -566,7 +578,7 @@ res_t netbox_file_publish(netbox_state_t *netbox_state, char *filename, char *la
 		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
-		return failure("Unkown status code from the server.\n");
+		return failure("Unknown status code from the server.\n");
 	}
 	
 	return SUCCESS;
@@ -615,7 +627,7 @@ res_t netbox_file_remove(netbox_state_t *netbox_state, char *filename) {
 		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
-		return failure("Unkown status code from the server.\n");
+		return failure("Unknown status code from the server.\n");
 	}
 	
 	return SUCCESS;
@@ -623,26 +635,40 @@ res_t netbox_file_remove(netbox_state_t *netbox_state, char *filename) {
 
 
 // TODO: documentation
-static res_t parse_filenames(char *filenames, char *filenames_list[], int max_filename_count) {
-	if (max_filename_count == 0)
-		return failure("Hell nah broo!\n");
+static int parse_filenames(char *filenames, char *filenames_list[], int max_filename_count) {
+	if (max_filename_count <= 0) {
+		return -1;
+	}
 
-	int i = 0;
-	filenames_list[i] = strtok(filenames, " ");
+	char* first_filename = strtok(filenames, " ");
+	if (first_filename == NULL) {
+		return 0;
+	}
+	if (check_filename(first_filename) != SUCCESS) {
+		failure("Invalid filename.\n");
+		return -1;
+	}
 
-	do {
-		if (i > max_filename_count) {
-			printf("Warning, too many resources were received, only showing some.\n");
-			return SUCCESS;
+	filenames_list[0] = first_filename;
+	int i = 1;
+	
+	while (i < max_filename_count) {
+		char* filename = strtok(NULL, " ");
+
+		if (filename == NULL) {
+			break;
 		}
 
-		if (check_filename(filenames_list[i]) == SUCCESS)
-			i++;
-		else
-			return failure("Server sent an invalid filename, skipping it.\n");
-	} while((filenames_list[i] = strtok(NULL, " ")) != NULL);
+		if (check_filename(filename) != SUCCESS) {
+			failure("Invalid filename.\n");
+			return -1;
+		}
 
-	return SUCCESS;
+		filenames_list[i] = filename;
+		i += 1;
+	}
+
+	return i;
 }
 
 
@@ -671,23 +697,26 @@ res_t netbox_files_list(netbox_state_t *netbox_state) {
 		return failure("The server received a malformed message and didn't like it.\n");
 	}
 	else {
-		return failure("Unkown status code from the server.\n");
+		return failure("Unknown status code from the server.\n");
 	}
 
 	char *filenames_section = status + strlen(status) + 1;  // skip the status code
 	char *filenames_list[MAX_RLS_FILENAME_COUNT] = {};
-	if (parse_filenames(filenames_section, filenames_list, MAX_RLS_FILENAME_COUNT) != SUCCESS)
-		return FAILURE;
+	int number_of_files = parse_filenames(filenames_section, filenames_list, MAX_RLS_FILENAME_COUNT);
 
-	if (filenames_list[0] == NULL) {
-		printf("The server doesn't have any resources. :/\n");
-		return SUCCESS;
+	if (number_of_files == -1) {
+		return FAILURE;
 	}
 
-	printf("Known resources:\n");
-	int i = 0;
-	while (filenames_list[i] != NULL)
-		printf("\t%s\n", filenames_list[i++]);
+	if (number_of_files == 0) {
+		printf("No resources to be listed.\n");
+	} else {
+		printf("Known resources:\n");
+	}
+
+	for (int i = 0; i < number_of_files; i += 1) {
+		printf("\t%s\n", filenames_list[i]);
+	}
 
 	return SUCCESS;
 }
@@ -703,7 +732,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	}
 
 	// =========== Send TCP request and wait for response ===========
-	tcp_socket_fd = estabilish_network_connection(netbox_state->directory_server_tcp_address_info);
+	tcp_socket_fd = establish_network_connection(netbox_state->directory_server_tcp_address_info);
 	if (tcp_socket_fd == -1) {
 		goto fail;
 	}
@@ -717,7 +746,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	}
 
 	ssize_t response_size;
-	if ((response_size = tcp_receive_message(tcp_socket_fd, &response_buffer)) == -1) {
+	if ((response_size = tcp_receive_message(tcp_socket_fd, &response_buffer, 1 << 20)) == -1) {
 		goto fail;
 	}
 
@@ -755,12 +784,12 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	char* start_of_versions = status + strlen(status) + 1;
 	int number_of_spaces = 0;
 
-	char* i = start_of_versions;
-	while (i != response_buffer + response_size) {
-		if (*i == ' ') {
+	char* p = start_of_versions;
+	while (p < response_buffer + response_size) {
+		if (*p == ' ') {
 			number_of_spaces += 1;
 		}
-		i += 1;
+		p += 1;
 	}
 
 	int number_of_versions = (number_of_spaces + 1) / 5;
@@ -775,7 +804,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	for (int i = 0; i < number_of_versions; i += 1) {
 		netbox_file_version_t* file_version = &(versions_buffer[i]);
 
-		int bytes_read;
+		int bytes_read = 0;
 		char availability[AVAILABILITY_LENGTH + 1];
 
 		int n = sscanf(start_of_versions + total_bytes_read, 
@@ -786,10 +815,9 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 				 "%"STRINGFY(AVAILABILITY_LENGTH)"s%n",
 				 file_version->publisher_uid, &(file_version->file_size), file_version->label, file_version->publication_time, availability, &bytes_read);
 
-		total_bytes_read += bytes_read;
-
 		if (n == EOF) {
-			break;
+			failure("Failed to read version information.\n");
+			goto fail;
 		} else if (n < 5) {
 			failure("Failed to read version information.\n");
 			goto fail;
@@ -803,6 +831,8 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 			failure("Invalid availability status.\n");
 			goto fail;
 		}
+
+		total_bytes_read += bytes_read;
 	}
 
 	*file_versions = versions_buffer;
@@ -908,7 +938,7 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 		goto fail;
 	}
 
-	// =========== Estabilish connection with the peer who is serving the file  ===========
+	// =========== Establish connection with the peer who is serving the file  ===========
 	struct addrinfo hints = {0};
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
@@ -921,10 +951,10 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 		goto fail;
 	}
 
-	tcp_socket_fd = estabilish_network_connection(peer_server_address_info);
+	tcp_socket_fd = establish_network_connection(peer_server_address_info);
 
 	if (tcp_socket_fd == -1) {
-		failure("Failed to estabilish connection with the peer %s.\n", file_location.peer_address);
+		failure("Failed to establish connection with the peer %s.\n", file_location.peer_address);
 		goto fail;
 	}
 
@@ -947,7 +977,7 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 		failure("Failed to read GET response header. %d\n", response_result);
 		goto fail;
 	}
-	ssize_t response_header_length = (size_t) response_result;
+	size_t response_header_length = (size_t) response_result;
 
 	if (strncmp(response_header, "RGT ", 4) != 0) {
 		failure("Invalid op word from the peer.\n");
