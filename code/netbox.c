@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #include "result.h"
 #include "netbox.h"
@@ -122,9 +123,14 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 static res_t tcp_send_message(int tcp_socket_fd, char* message, size_t message_length) {
 	size_t bytes_sent = 0;
 	while (bytes_sent != message_length) {
+		errno = 0;
 		ssize_t send_result = send(tcp_socket_fd, &(message[bytes_sent]), message_length - bytes_sent, 0);
 
 		if (send_result == -1) {
+			if (errno == EINTR) {
+				continue;
+			}
+
 			return failure("Failed to send TCP message. Already sent %d bytes, %d bytes left.\n", bytes_sent, message_length - bytes_sent);
 		}
 
@@ -757,7 +763,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	}
 
 	// =========== Check status code ===========
-	char* status = strtok(NULL, " ");
+	char* status = strtok(NULL, " \n");
 
 	if (status == NULL) {
 		failure("Invalid status code from the server.\n");
@@ -767,16 +773,16 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	if (strcmp(status, "OK") == 0) {
 		// All good
 	}
-	else if (strcmp(status, "NOK\n") == 0) {
+	else if (strcmp(status, "NOK") == 0) {
 		printf("No peer is available for the specified resource.\n\tfilename: %s\n", filename);
 		goto fail;
 	}
-	else if (strcmp(status, "ERR\n") == 0) {
+	else if (strcmp(status, "ERR") == 0) {
 		failure("The server received a malformed message and didn't like it.\n");
 		goto fail;
 	}
 	else {
-		failure("Unknown status code from the server.\n");
+		failure("Unknown status code from the server. %s\n", status);
 		goto fail;
 	}
 
