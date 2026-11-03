@@ -19,7 +19,6 @@
 
 //FIXME: separate this into two files
 //FIXME: remove gotos
-//FIXME: saparate netbox_file_get for god sake, it's almost 200 lines!!!
 
 #define _STRINGFY(x) #x
 #define STRINGFY(x) _STRINGFY(x)
@@ -82,7 +81,7 @@ static int establish_network_connection(struct addrinfo* server_address_info) {
 static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_t message_length, char *expected_op_word, char **status) {
 	static char reply[MAX_UDP_PACKET_LENGTH + 1];
 
-	if (message_length >= sizeof(reply)) {
+	if (message_length >= sizeof(reply) || message_length == 0) {
 		return failure("Invalid message length.\n");
 	}
 
@@ -97,12 +96,16 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 		return failure("Failed to send UDP message to Directory Server.\n");
 	}
 
-	reply[send_result] = '\0';
-
 	// Read reply
-	int bytes_read = recv(netbox_state->directory_server_udp_socket_fd, reply, MAX_UDP_PACKET_LENGTH, 0);
+	ssize_t bytes_read = recv(netbox_state->directory_server_udp_socket_fd, reply, MAX_UDP_PACKET_LENGTH, 0);
 	if (bytes_read < 0)
 		return failure("Couldn't receive confirmation from the server.\n");
+
+	reply[bytes_read] = '\0';
+
+	if (reply[bytes_read - 1] != '\n') {
+		return failure("Invalid response. Must end with newline character.");
+	}
  
 	char *op_word = strtok(reply, " ");
 	*status = strtok(NULL, "\n");
@@ -1008,6 +1011,7 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 	char response_header[16];
 	memset(response_header, '\0', sizeof(response_header));
 	ssize_t response_result;
+	// FIXME: should retry
 	if ((response_result = read(tcp_socket_fd, response_header, sizeof(response_header))) < 8) {
 		failure("Failed to read GET response header. %d\n", response_result);
 		goto fail;
@@ -1039,6 +1043,7 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 	size_t file_size = 0;
 
 	// Read the file size
+	// FIXME: use scanf
 	do {
 		if (!isdigit(*file_size_iterator)) {
 			failure("File size is invalid.\n");
@@ -1081,6 +1086,7 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 
 	// Read the file data
 	char buffer[1024];
+	// FIXME: we need to read file_size + 1 and check that the last byte is a \n
 	while (total_bytes_read < file_size) {
 		response_result = read(tcp_socket_fd, buffer, sizeof(buffer));
 
@@ -1095,10 +1101,12 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 		}
 
 		size_t bytes_read = (size_t)response_result;
+		// FIXME: should be more comprehensible
 		size_t max = bytes_read < file_size - total_bytes_read ? bytes_read : file_size - total_bytes_read;
 
 		ssize_t write_result = write(output_fd, buffer, max);
 
+		// FIXME: should retry
 		if (write_result != (ssize_t)max) {
 			failure("Failed to write to output file.\n");
 			goto fail;
