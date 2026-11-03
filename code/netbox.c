@@ -77,14 +77,26 @@ static int establish_network_connection(struct addrinfo* server_address_info) {
  * @return Whether the operation was successful or not.
  */
 static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_t message_length, char *expected_op_word, char **status) {
-	static char reply[MAX_UDP_PACKET_LENGTH + 1];  // null char
-	memset(reply, 0, sizeof(reply));  // clear the buffer
+	static char reply[MAX_UDP_PACKET_LENGTH + 1];
 
-	// send message
-	if (send(netbox_state->directory_server_udp_socket_fd, message, message_length, 0) != (ssize_t)message_length)
-		return failure("Couldn't communicate with server.\n");
+	if (message_length >= sizeof(reply)) {
+		return failure("Invalid message length.\n");
+	}
 
-	// read reply
+	// Send the message
+	errno = 0;
+	ssize_t send_result;
+	do {
+		send_result = send(netbox_state->directory_server_udp_socket_fd, message, message_length, 0);
+	} while (send_result < 0 && errno == EINTR);
+
+	if (send_result < 0) {
+		return failure("Failed to send UDP message to Directory Server.\n");
+	}
+
+	reply[send_result] = '\0';
+
+	// Read reply
 	int bytes_read = recv(netbox_state->directory_server_udp_socket_fd, reply, MAX_UDP_PACKET_LENGTH, 0);
 	if (bytes_read < 0)
 		return failure("Couldn't receive confirmation from the server.\n");
@@ -349,8 +361,15 @@ res_t netbox_setup(netbox_state_t* netbox_state, int peer_server_port, char* dir
 	netbox_state->directory_server_port = directory_server_port == 0 ? DEFAULT_DIRECTORY_SERVER_PORT : directory_server_port;
 	netbox_state->peer_server_port = peer_server_port;
 
+	// Ignore SIGPIPE when writing to a socket that was already closed
+	// so that we can cleanup properly
+	struct sigaction sa = {};
+	sa.sa_handler = SIG_IGN;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGPIPE, &sa, NULL);
+
 	// Create the UDP socket and connect it to the Directory Server
-	struct addrinfo hints = {0};
+	struct addrinfo hints = {};
 	struct addrinfo* directory_server_udp_address_info;
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_DGRAM;
@@ -394,6 +413,13 @@ res_t netbox_cleanup(netbox_state_t* netbox_state) {
 	}
 	close(netbox_state->directory_server_udp_socket_fd);
 	freeaddrinfo(netbox_state->directory_server_tcp_address_info);
+
+	// Restore SIGPIPE default behaviour
+	struct sigaction sa = {};
+	sa.sa_handler = SIG_DFL;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGPIPE, &sa, NULL);
+
 	return SUCCESS;
 }
 
