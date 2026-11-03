@@ -17,6 +17,9 @@
 #include "result.h"
 #include "netbox.h"
 
+//FIXME: separate this into two files
+//FIXME: remove gotos
+//FIXME: saparate netbox_file_get for god sake, it's almost 200 lines!!!
 
 #define _STRINGFY(x) #x
 #define STRINGFY(x) _STRINGFY(x)
