@@ -18,7 +18,6 @@
 #include "netbox.h"
 
 //FIXME: separate this into two files
-//FIXME: remove gotos
 
 #define _STRINGFY(x) #x
 #define STRINGFY(x) _STRINGFY(x)
@@ -792,19 +791,34 @@ res_t netbox_files_list(netbox_state_t *netbox_state) {
 }
 
 
+static void netbox_file_versions_cleanup(int tcp_socket_fd, char* response_buffer, netbox_file_version_t* versions_buffer) {
+	if (tcp_socket_fd != -1) {
+		close(tcp_socket_fd);
+	}
+	if (response_buffer != NULL) {
+		free(response_buffer);
+	}
+	if (versions_buffer != NULL) {
+		free(versions_buffer);
+	}
+}
+
+
 int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_file_version_t** file_versions) {
 	int tcp_socket_fd = -1;
 	char* response_buffer = NULL;
 	netbox_file_version_t* versions_buffer = NULL;
 
 	if (check_filename(filename) != SUCCESS) {
-		goto fail;
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
+		return -1;
 	}
 
 	// =========== Send TCP request and wait for response ===========
 	tcp_socket_fd = establish_network_connection(netbox_state->directory_server_tcp_address_info);
 	if (tcp_socket_fd == -1) {
-		goto fail;
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
+		return -1;
 	}
 
 	char request_message[OP_WORD_LENGTH + 1 + MAX_FILENAME_LENGTH + 1 + 1];
@@ -812,42 +826,49 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	size_t request_message_length = strlen(request_message);
 
 	if (write_all(tcp_socket_fd, request_message, request_message_length) != SUCCESS) {
-		goto fail;
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
+		return -1;
 	}
 
 	ssize_t response_size;
 	if ((response_size = tcp_receive_message(tcp_socket_fd, &response_buffer, 1 << 20)) == -1) {
-		goto fail;
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
+		return -1;
 	}
 
 	char* op_word = strtok(response_buffer, " ");
 	if (op_word == NULL || strcmp(op_word, "RVR") != 0) {
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
 		failure("Invalid op word from the server.\n");
-		goto fail;
+		return -1;
 	}
 
 	// =========== Check status code ===========
 	char* status = strtok(NULL, " \n");
 
 	if (status == NULL) {
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
 		failure("Invalid status code from the server.\n");
-		goto fail;
+		return -1;
 	}
 
 	if (strcmp(status, "OK") == 0) {
 		// All good
 	}
 	else if (strcmp(status, "NOK") == 0) {
-		printf("No peer is available for the specified resource.\n\tfilename: %s\n", filename);
-		goto fail;
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
+		failure("No peer is available for the specified resource.\n\tfilename: %s\n", filename);
+		return -1;
 	}
 	else if (strcmp(status, "ERR") == 0) {
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
 		failure("The server received a malformed message and didn't like it.\n");
-		goto fail;
+		return -1;
 	}
 	else {
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
 		failure("Unknown status code from the server. %s\n", status);
-		goto fail;
+		return -1;
 	}
 
 	// =========== Read all version entries ===========
@@ -866,8 +887,9 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	versions_buffer = malloc(sizeof(netbox_file_version_t) * number_of_versions);
 
 	if (versions_buffer == NULL) {
+		netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
 		failure("Failed to allocate versions buffer.\n");
-		goto fail;
+		return -1;
 	}
 
 	int total_bytes_read = 0;
@@ -886,11 +908,13 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 				 file_version->publisher_uid, &(file_version->file_size), file_version->label, file_version->publication_time, availability, &bytes_read);
 
 		if (n == EOF) {
+			netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
 			failure("Failed to read version information.\n");
-			goto fail;
+			return -1;
 		} else if (n < 5) {
+			netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
 			failure("Failed to read version information.\n");
-			goto fail;
+			return -1;
 		}
 
 		if (strcmp(availability, "AVL") == 0) {
@@ -898,8 +922,9 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 		} else if (strcmp(availability, "NAV") == 0) {
 			file_version->is_available = false;
 		} else {
+			netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, versions_buffer);
 			failure("Invalid availability status.\n");
-			goto fail;
+			return -1;
 		}
 
 		total_bytes_read += bytes_read;
@@ -907,20 +932,9 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 
 	*file_versions = versions_buffer;
 
-	free(response_buffer);
-	close(tcp_socket_fd);
+	netbox_file_versions_cleanup(tcp_socket_fd, response_buffer, NULL);
 
 	return number_of_versions;
-
-fail:
-	if (tcp_socket_fd != -1)
-		close(tcp_socket_fd);
-	if (response_buffer != NULL)
-		free(response_buffer);
-	if (versions_buffer != NULL)
-		free(versions_buffer);
-
-	return -1;
 }
 
 
