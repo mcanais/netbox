@@ -980,10 +980,6 @@ res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename,
 
 
 res_t netbox_locate_available_file_version(netbox_state_t* netbox_state, char* filename, netbox_peer_location_t* peer_location) {
-	strcpy(peer_location->address, "127.0.0.1");
-	peer_location->port = 53435;
-	return SUCCESS;
-
 	netbox_file_version_t* file_versions = NULL;
 	int number_of_versions = netbox_file_versions(netbox_state, filename, &file_versions);
 

@@ -1,4 +1,3 @@
-//TODO: maybe display errno with strerror()?
 //TODO: maybe seperate the argument checking in the functions that do that
 
 #include <stdio.h>
