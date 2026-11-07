@@ -41,10 +41,10 @@ typedef struct netbox_file_version_t {
 } netbox_file_version_t;
 
 
-typedef struct netbox_file_location_t {
-	char peer_address[16]; // It is an IPv4 address
-	int peer_port;
-} netbox_file_location_t;
+typedef struct netbox_peer_location_t {
+	char address[16]; // It is an IPv4 address
+	int port;
+} netbox_peer_location_t;
 
 
 /**
@@ -160,26 +160,39 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 
 
 /**
- * Returns the location (IP address and port) of the file published by the specified user.
+ * Returns the location (IP address and port) of the peer (identified by its user ID) that 
+ * published the specified file.
  * 
  * @param netbox_state   Pointer to the netbox state.
  * @param filename       Name of the file.
- * @param uid            User ID we want to find the location of.
- * @param[out] location  Location (IP address and port) of the file published by the specified user.
+ * @param uid            User ID of the peer we want to find the location of.
+ * @param[out] location  Location (IP address and port) of the peer that published the file.
  *
  * @return Whether the operation was successful or not.
  */
-res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename, char* uid, netbox_file_location_t* location);
+res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename, char* uid, netbox_peer_location_t* location);
 
 
 /**
- * Downloads the specified file from a peer.
- * The peer to download from is automatically chosen.
- * The downloaded file is placed in the specified output file path.
+ * Returns the location (IP address and port) of an available peer that 
+ * published the specified file.
+ * 
+ * @param netbox_state   Pointer to the netbox state.
+ * @param filename       Name of the file.
+ * @param[out] location  Location (IP address and port) of the peer that published the file.
+ *
+ * @return Whether the operation was successful or not.
+ */
+res_t netbox_locate_available_file_version(netbox_state_t* netbox_state, char* filename, netbox_peer_location_t* peer_location);
+
+
+/**
+ * Downloads the specified file and writes it to the output file path.
+ * This file is downloaded from an available peer (automatically chosen).
  * 
  * @param netbox_state      Pointer to the netbox state.
  * @param filename          Name of the file to be downloaded.
- * @param output_file_path  Path where the downloaded file will be placed in.
+ * @param output_file_path  Path where the downloaded file will be written to.
  *
  * @return Whether the operation was successful or not.
  */

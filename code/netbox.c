@@ -32,6 +32,72 @@
 
 
 /**
+ * Writes a message to the file.
+ * Either all message is written or an error occurs.
+ *
+ * @param fd              File descriptor that is going to be written to.
+ * @param message         Buffer containing the message to write.
+ * @param message_length  Size of the message in bytes.
+ *
+ * @return Whether the operation was successful or not.
+ */
+static res_t write_all(int fd, char* message, size_t message_length) {
+	size_t bytes_written = 0;
+	while (bytes_written != message_length) {
+		errno = 0;
+		ssize_t write_result = write(fd, &(message[bytes_written]), message_length - bytes_written);
+
+		if (write_result == -1) {
+			if (errno == EINTR) {
+				continue;
+			}
+
+			return FAILURE;
+		}
+
+		bytes_written += (size_t)write_result;
+	}
+
+	return SUCCESS;
+}
+
+
+/**
+ * Reads a message from the file until hitting end of file.
+ * This message has a fixed maximum length.
+ *
+ * @param fd                  File descriptor that is going to be read from.
+ * @param message             Buffer where the message is going to be read into.
+ * @param max_message_length  Maximum message size that can be read in bytes.
+ *
+ * @return Number of bytes read on success, -1 if it failed.
+ */
+static ssize_t read_fixed(int fd, char* message, size_t max_message_length) {
+	size_t bytes_read = 0;
+	while (bytes_read < max_message_length) {
+		errno = 0;
+		ssize_t read_result = read(fd, &(message[bytes_read]), max_message_length - bytes_read);
+
+		if (read_result == -1) {
+			if (errno == EINTR) {
+				continue;
+			}
+
+			return -1;
+		}
+
+		if (read_result == 0) {
+			return bytes_read;
+		}
+
+		bytes_read += (size_t)read_result;
+	}
+
+	return bytes_read;
+}
+
+
+/**
  * Establishes a network connection with the specified server and returns the
  * file descriptor of the socket that was opened.
  *
@@ -114,45 +180,11 @@ static res_t send_udp_message(netbox_state_t *netbox_state, char *message, size_
 		return failure("Invalid op word from the server.\n");
 
 	if (strcmp(op_word, expected_op_word) != 0) {
-		if (strcmp(op_word, "ERR") == 0) {
-			return failure("The server received a non existing op word and didn't like it.\n");
-		}
-
 		return failure("Invalid op word from the server. Expected: %s, got: %s\n", expected_op_word, op_word);
 	}
 
-	if (*status == NULL)
+	if (*status == NULL) {
 		return failure("Invalid status code from the server.\n");
-
-	return SUCCESS;
-}
-
-
-/**
- * Sends a TCP message in the specified socket.
- * Either all message is sent or an error occurs.
- *
- * @param tcp_socket_fd   File descriptor of the TCP socket
- * @param message         Buffer containing the message to send to the Directory Server.
- * @param message_length  Size of the message in bytes.
- *
- * @return Whether the operation was successful or not.
- */
-static res_t tcp_send_message(int tcp_socket_fd, char* message, size_t message_length) {
-	size_t bytes_sent = 0;
-	while (bytes_sent != message_length) {
-		errno = 0;
-		ssize_t send_result = send(tcp_socket_fd, &(message[bytes_sent]), message_length - bytes_sent, 0);
-
-		if (send_result == -1) {
-			if (errno == EINTR) {
-				continue;
-			}
-
-			return failure("Failed to send TCP message. Already sent %d bytes, %d bytes left.\n", bytes_sent, message_length - bytes_sent);
-		}
-
-		bytes_sent += (size_t)send_result;
 	}
 
 	return SUCCESS;
@@ -779,7 +811,7 @@ int netbox_file_versions(netbox_state_t* netbox_state, char* filename, netbox_fi
 	sprintf(request_message, "VRS %s\n", filename);
 	size_t request_message_length = strlen(request_message);
 
-	if (tcp_send_message(tcp_socket_fd, request_message, request_message_length) != SUCCESS) {
+	if (write_all(tcp_socket_fd, request_message, request_message_length) != SUCCESS) {
 		goto fail;
 	}
 
@@ -892,7 +924,7 @@ fail:
 }
 
 
-res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename, char* uid, netbox_file_location_t* location) {
+res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename, char* uid, netbox_peer_location_t* peer_location) {
 	if (check_filename(filename) != SUCCESS || check_uid(uid) != SUCCESS) {
 		return failure("Where usage: where filename UID\n");
 	}
@@ -925,7 +957,7 @@ res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename,
 		return failure("Unknown status code from the server.\n");
 	}
 
-	if (sscanf(response + bytes_read + 1, "%15s %d", location->peer_address, &(location->peer_port)) != 2) {
+	if (sscanf(response + bytes_read + 1, "%15s %d", peer_location->address, &(peer_location->port)) != 2) {
 		return failure("Could not parse file location properly.\n");
 	}
 
@@ -933,22 +965,94 @@ res_t netbox_locate_file_from_user(netbox_state_t* netbox_state, char* filename,
 }
 
 
-static netbox_file_version_t* select_best_file_version(netbox_file_version_t* file_versions, int number_of_versions) {
+res_t netbox_locate_available_file_version(netbox_state_t* netbox_state, char* filename, netbox_peer_location_t* peer_location) {
+	strcpy(peer_location->address, "127.0.0.1");
+	peer_location->port = 53435;
+	return SUCCESS;
+
+	netbox_file_version_t* file_versions = NULL;
+	int number_of_versions = netbox_file_versions(netbox_state, filename, &file_versions);
+
+	if (number_of_versions == -1) {
+		return FAILURE;
+	}
+
+	netbox_file_version_t* selected_file_version = NULL;
+
 	for (int i = 0; i < number_of_versions; i += 1) {
 		netbox_file_version_t* file_version = &(file_versions[i]);
 
 		if (file_version->is_available == true) {
-			return file_version;
+			selected_file_version = file_version;
+			break;
 		}
 	}
 
-	return NULL;
+	if (selected_file_version == NULL) {
+		free(file_versions);
+		return failure("There are no available file versions.\n");
+	}
+
+	if (netbox_locate_file_from_user(netbox_state, filename, selected_file_version->publisher_uid, peer_location) != SUCCESS) {
+		free(file_versions);
+		return FAILURE;
+	}
+
+	free(file_versions);
+	return SUCCESS;
+}
+
+
+/**
+ * Establishes a network connection with the specified peer server and returns the
+ * file descriptor of the socket that was opened.
+ *
+ * @param netbox_peer_location_t  Location of the peer server.
+ *
+ * @return File descriptor of the socket on success, -1 if it failed.
+ */
+static int establish_peer_network_connection(netbox_peer_location_t* peer_location) {
+	struct addrinfo* peer_server_address_info = NULL;
+	struct addrinfo hints = {0};
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	char peer_server_port_string[6];
+	snprintf(peer_server_port_string, sizeof(peer_server_port_string), "%d", peer_location->port);
+
+	if (getaddrinfo(peer_location->address, peer_server_port_string, &hints, &peer_server_address_info) != 0) {
+		failure("Failed to get address info for peer %s.\n", peer_location->address);
+		return -1;
+	}
+
+	int tcp_socket_fd = establish_network_connection(peer_server_address_info);
+
+	if (tcp_socket_fd == -1) {
+		freeaddrinfo(peer_server_address_info);
+		failure("Failed to establish connection with the peer %s.\n", peer_location->address);
+		return -1;
+	}
+
+	freeaddrinfo(peer_server_address_info);
+
+	return tcp_socket_fd;
+}
+
+
+static void netbox_file_get_cleanup(int tcp_socket_fd, int output_fd, char* output_file_path) {
+	if (output_file_path != NULL) {
+		unlink(output_file_path);
+	}
+	if (tcp_socket_fd != -1) {
+		close(tcp_socket_fd);
+	}
+	if (output_fd != -1) {
+		close(output_fd);
+	}
 }
 
 
 res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output_file_path) {
-	netbox_file_version_t* file_versions = NULL;
-	struct addrinfo* peer_server_address_info = NULL;
 	int tcp_socket_fd = -1;
 	int output_fd = -1;
 
@@ -957,43 +1061,16 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 	}
 
 	// =========== Find the file version to download ===========
-	int number_of_versions = netbox_file_versions(netbox_state, filename, &file_versions);
-
-	if (number_of_versions == -1) {
+	netbox_peer_location_t peer_location;
+	if (netbox_locate_available_file_version(netbox_state, filename, &peer_location) != SUCCESS) {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
 		return FAILURE;
 	}
 
-	netbox_file_version_t* best_file_version = select_best_file_version(file_versions, number_of_versions);
-
-	if (best_file_version == NULL) {
-		failure("Could not select an appropriate file version\n");
-		goto fail;
-	}
-
-	netbox_file_location_t file_location;
-
-	if (netbox_locate_file_from_user(netbox_state, filename, best_file_version->publisher_uid, &file_location) != SUCCESS) {
-		goto fail;
-	}
-
-	// =========== Establish connection with the peer who is serving the file  ===========
-	struct addrinfo hints = {0};
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-
-	char peer_server_port_string[6];
-	snprintf(peer_server_port_string, sizeof(peer_server_port_string), "%d", file_location.peer_port);
-
-	if (getaddrinfo(file_location.peer_address, peer_server_port_string, &hints, &peer_server_address_info) != 0) {
-		failure("Failed to get address info for peer %s.\n", file_location.peer_address);
-		goto fail;
-	}
-
-	tcp_socket_fd = establish_network_connection(peer_server_address_info);
-
-	if (tcp_socket_fd == -1) {
-		failure("Failed to establish connection with the peer %s.\n", file_location.peer_address);
-		goto fail;
+	// =========== Establish connection with the peer who is serving the file ===========
+	if ((tcp_socket_fd = establish_peer_network_connection(&peer_location)) == -1) {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return FAILURE;
 	}
 
 	// =========== Send GET request  ===========
@@ -1001,139 +1078,113 @@ res_t netbox_file_get(netbox_state_t* netbox_state, char* filename, char* output
 	sprintf(request_message, "GET %s\n", filename);
 	size_t request_message_length = strlen(request_message);
 
-	if (tcp_send_message(tcp_socket_fd, request_message, request_message_length) != SUCCESS) {
-		goto fail;
+	if (write_all(tcp_socket_fd, request_message, request_message_length) != SUCCESS) {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return FAILURE;
 	}
 	
 	// =========== Receive response  ===========
-	// The response header is the following: RGT status Fsize
-	// This header is at most 16 bytes because Fsize is at most 8 bytes
-	char response_header[16];
-	memset(response_header, '\0', sizeof(response_header));
+	// First we need to read the response header. It is in the following format: RGT status Fsize
+	// This header is at most 16 bytes because Fsize is at most 8 bytes and there is a trailing space
+	char buffer[1024];
 	ssize_t response_result;
-	// FIXME: should retry
-	if ((response_result = read(tcp_socket_fd, response_header, sizeof(response_header))) < 8) {
-		failure("Failed to read GET response header. %d\n", response_result);
-		goto fail;
-	}
-	size_t response_header_length = (size_t) response_result;
-
-	if (strncmp(response_header, "RGT ", 4) != 0) {
-		failure("Invalid op word from the peer.\n");
-		goto fail;
+	size_t file_size;
+	size_t total_file_bytes_read = 0;
+	
+	// Read header
+	memset(buffer, 0, 17);
+	if ((response_result = read_fixed(tcp_socket_fd, buffer, 16)) < 0) {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return failure("Failed to read GET response header. %d\n", response_result);
 	}
 
-	if (strncmp(response_header + 4, "OK ", 3) == 0) {
+	// Check op word
+	if (strncmp(buffer, "RGT ", 4) != 0) {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return failure("Invalid op word from the peer.\n");
+	}
+
+	// Check status code
+	if (strncmp(buffer + 4, "OK ", 3) == 0) {
 		// All good
 	}
-	else if (strncmp(response_header + 4, "NOK", 3) == 0) {
-		printf("The file is not available in this peer.\n\tfilename: %s\n", filename);
-		goto fail;
+	else if (strncmp(buffer + 4, "NOK", 3) == 0) {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return failure("The file is not available in this peer.\n\tfilename: %s\n", filename);
 	}
-	else if (strncmp(response_header + 4, "ERR", 3) == 0) {
-		failure("The peer received a malformed message and didn't like it.\n");
-		goto fail;
+	else if (strncmp(buffer + 4, "ERR", 3) == 0) {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return failure("The peer received a malformed message and didn't like it.\n");
 	}
 	else {
-		failure("Unknown status code from the peer.\n");
-		goto fail;
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return failure("Unknown status code from the peer.\n");
 	}
 
-	char* file_size_iterator = response_header + 7;
-	size_t file_size = 0;
+	// Parse file size
+	int bytes_consumed;
+	if (sscanf(buffer + 7, "%zu%n", &file_size, &bytes_consumed) != 1
+	    || bytes_consumed > 8 || file_size > 10000000 || buffer[7 + bytes_consumed] != ' '
+	) {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return failure("Failed to read file size");
+	}
 
-	// Read the file size
-	// FIXME: use scanf
-	do {
-		if (!isdigit(*file_size_iterator)) {
-			failure("File size is invalid.\n");
-			goto fail;
-		}
+	size_t remaining_header_bytes = (size_t)response_result - (7 + bytes_consumed + 1);
+	char* start_of_file_data = buffer + 7 + bytes_consumed + 1;
 
-		file_size = file_size * 10 + (*file_size_iterator - '0');
-		file_size_iterator += 1;
-
-		if (file_size_iterator >= response_header + sizeof(response_header)) {
-			failure("File size is invalid.\n");
-			goto fail;
-		}
-	} while (*file_size_iterator != ' ');
-
-	// The output file is where the file data from the GET response is going to be written to
+	// =========== Write file data  ===========
 	output_fd = open(output_file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
 	if (output_fd == -1) {
-		failure("Failed to create output file.\n");
-		goto fail;
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
+		return failure("Failed to create output file.\n");
 	}
 
-	size_t total_bytes_read = 0;
-	size_t remaining_bytes = response_header_length - (file_size_iterator - response_header + 1);
+	// Write the file data bytes that might have been included with the header response.
+	if (remaining_header_bytes > 0) {
+		size_t bytes_to_write = file_size < remaining_header_bytes ? file_size : remaining_header_bytes;
 
-	// Write the remaining bytes of the response header to the output file.
-	// These are the starting bytes of the file data
-	if (remaining_bytes > 0) {
-		size_t max = file_size < remaining_bytes ? file_size : remaining_bytes;
-		ssize_t write_result = write(output_fd, file_size_iterator + 1, max);
-
-		if (write_result != (ssize_t)max) {
-			failure("Failed to write to output file.\n");
-			goto fail;
+		if (write_all(output_fd, start_of_file_data, bytes_to_write) != SUCCESS) {
+			netbox_file_get_cleanup(tcp_socket_fd, output_fd, output_file_path);
+			return failure("Failed to write to output file.\n");
 		}
 
-		total_bytes_read += (size_t) write_result;
+		total_file_bytes_read += remaining_header_bytes;
 	}
 
-	// Read the file data
-	char buffer[1024];
-	// FIXME: we need to read file_size + 1 and check that the last byte is a \n
-	while (total_bytes_read < file_size) {
+	// Read the file data from the network socket, write it to the output file.
+	while (total_file_bytes_read < file_size + 1) {
 		response_result = read(tcp_socket_fd, buffer, sizeof(buffer));
 
-		if (response_result < 0) {
-			failure("Failed to read file data.\n");
-			goto fail;
-		}
-
-		if (response_result == 0) {
-			failure("Peer did not send the full file data.\n");
-			goto fail;
+		if (response_result <= 0) {
+			netbox_file_get_cleanup(tcp_socket_fd, output_fd, output_file_path);
+			return failure("Failed to read file data.\n");
 		}
 
 		size_t bytes_read = (size_t)response_result;
-		// FIXME: should be more comprehensible
-		size_t max = bytes_read < file_size - total_bytes_read ? bytes_read : file_size - total_bytes_read;
 
-		ssize_t write_result = write(output_fd, buffer, max);
+		if (total_file_bytes_read < file_size) {
+			size_t bytes_to_write = bytes_read < file_size - total_file_bytes_read ? bytes_read : file_size - total_file_bytes_read;
 
-		// FIXME: should retry
-		if (write_result != (ssize_t)max) {
-			failure("Failed to write to output file.\n");
-			goto fail;
+			if (write_all(output_fd, buffer, bytes_to_write) != SUCCESS) {
+				netbox_file_get_cleanup(tcp_socket_fd, output_fd, output_file_path);
+				return failure("Failed to write to output file.\n");
+			}
 		}
 
-		total_bytes_read += bytes_read;
+		total_file_bytes_read += bytes_read;
 	}
 
+	// Check that the last byte received was a newline
+	if (buffer[response_result - 1] != '\n') {
+		netbox_file_get_cleanup(tcp_socket_fd, output_fd, output_file_path);
+		return failure("Invalid response. Must end with newline character.");
+	}
+	
 	printf("Successfully downloaded file %s (%zu bytes) to %s.\n", filename, file_size, output_file_path);
 
-	close(tcp_socket_fd);
-	freeaddrinfo(peer_server_address_info);
-	free(file_versions);
-	close(output_fd);
+	netbox_file_get_cleanup(tcp_socket_fd, output_fd, NULL);
 
 	return SUCCESS;
-
-fail:
-	if (tcp_socket_fd != -1)
-		close(tcp_socket_fd);
-	if (peer_server_address_info != NULL)
-		freeaddrinfo(peer_server_address_info);
-	if (file_versions != NULL)
-		free(file_versions);
-	if (output_fd != -1) {
-		close(output_fd);
-	}
-
-	return FAILURE;
 }
